@@ -148,6 +148,17 @@
     return [...s].filter(Boolean);
   }
 
+  // 品名優先用報價單（momi報價單）的名稱，查不到才退回查核表的品名
+  function productDisplayName(itemCode) {
+    if (!itemCode) return '';
+    const q = state.quoteMaster.get(itemCode);
+    if (q && q.name) return q.name;
+    if (state.priceTable && state.priceTable.productMaster.has(itemCode)) {
+      return state.priceTable.productMaster.get(itemCode);
+    }
+    return itemCode;
+  }
+
   function allProductMaster() {
     const m = new Map(state.priceTable ? state.priceTable.productMaster : []);
     for (const [code, info] of state.quoteMaster) {
@@ -310,9 +321,9 @@
       const badge = g.hasDiff ? '<span class="badge badge-diff">有差異</span>' : '<span class="badge badge-ok">一致</span>';
       html += `<div class="order-block"><div class="block-header"><strong>${escapeHtml(g.customer)} - ${g.date}</strong>${badge}</div>`;
       html += '<div class="block-body">' + tableHtml(
-        ['品號', 'LINE數量', '鼎新數量', '差異', '鼎新單號'],
-        g.rows.map((r) => [r.itemCode, r.lineQty, r.dxQty, r.diff, r.orderNos.join('、') || '-']),
-        (r) => (r[3] !== 0 ? 'row-diff' : 'row-ok')
+        ['品號', '品名', 'LINE數量', '鼎新數量', '差異', '鼎新單號'],
+        g.rows.map((r) => [r.itemCode, productDisplayName(r.itemCode), r.lineQty, r.dxQty, r.diff, r.orderNos.join('、') || '-']),
+        (r) => (r[4] !== 0 ? 'row-diff' : 'row-ok')
       ) + '</div></div>';
     }
     el.innerHTML = html;
@@ -334,7 +345,7 @@
     el.innerHTML = tableHtml(
       ['日期', '單號', '客戶', '品號', '品名', '數量', '登打單價', '正確價格', '來源', '狀態'],
       rows.map((r) => [
-        r.date, r.orderNo, r.customer, r.itemCode, r.itemName, r.qty, r.unitPrice,
+        r.date, r.orderNo, r.customer, r.itemCode, productDisplayName(r.itemCode), r.qty, r.unitPrice,
         r.correctPrice != null ? r.correctPrice : '-',
         r.priceSource ? (r.promo ? `${r.priceSource}+促銷` : r.priceSource) : '-',
         r.status === 'diff' ? '異常' : (r.status === 'ok' ? '正常' : '查無資料')
@@ -346,7 +357,7 @@
 
   $('btnExportPrice').addEventListener('click', () => {
     const rows = state.priceCompare.map((r) => ({
-      日期: r.date, 單號: r.orderNo, 客戶: r.customer, 品號: r.itemCode, 品名: r.itemName,
+      日期: r.date, 單號: r.orderNo, 客戶: r.customer, 品號: r.itemCode, 品名: productDisplayName(r.itemCode),
       數量: r.qty, 登打單價: r.unitPrice, 正確價格: r.correctPrice, 價格來源: r.priceSource,
       狀態: r.status === 'diff' ? '異常' : (r.status === 'ok' ? '正常' : '查無資料')
     }));
