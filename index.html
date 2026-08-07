@@ -1,0 +1,160 @@
+<meta charset="UTF-8">
+<title>摩米訂單/價格比對工具</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="assets/style.css">
+
+<header class="app-header">
+  <h1>摩米 LINE 訂單 × 鼎新銷貨 比對工具</h1>
+  <p>所有檔案都只在你的瀏覽器裡處理，不會上傳到任何伺服器。</p>
+</header>
+
+<div class="container">
+
+  <section class="card">
+    <h2>1. 上傳檔案</h2>
+    <div class="upload-grid">
+      <div class="upload-item">
+        <label>鼎新銷退貨明細表（.xlsx）</label>
+        <input type="file" id="fileDingxin" accept=".xlsx,.xls">
+        <div class="upload-status" id="statusDingxin"></div>
+      </div>
+      <div class="upload-item">
+        <label>LINE 匯出訊息（.txt）</label>
+        <input type="file" id="fileLine" accept=".txt">
+        <div class="upload-status" id="statusLine"></div>
+      </div>
+      <div class="upload-item">
+        <label>客戶價格查核表（.xlsm）</label>
+        <input type="file" id="filePrice" accept=".xlsm,.xlsx">
+        <div class="upload-status" id="statusPrice"></div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <label>比對日期範圍</label>
+      <input type="date" id="dateFrom">
+      <span>～</span>
+      <input type="date" id="dateTo">
+      <button id="btnRun">開始比對</button>
+      <span class="upload-status" id="statusRun"></span>
+    </div>
+  </section>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="orders">訂單比對</button>
+    <button class="tab-btn" data-tab="price">價格比對</button>
+    <button class="tab-btn" data-tab="alias">店家/品項對照</button>
+    <button class="tab-btn" data-tab="exclude">排除名單</button>
+    <button class="tab-btn" data-tab="promo">檔期促銷設定</button>
+    <button class="tab-btn" data-tab="help">說明</button>
+  </div>
+
+  <div class="tab-panel active" id="tab-orders">
+    <section class="card">
+      <h2>訂單比對（以 LINE 為準）</h2>
+      <p class="section-note">按「店家 + 日期」彙總後比對品項數量。只比對已成功對照到鼎新品號/客戶的項目，未對照的請到「店家/品項對照」頁簽處理。</p>
+      <div class="stat-row" id="orderStats"></div>
+      <div id="orderResults"><div class="empty-state">請先上傳檔案並按「開始比對」</div></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" id="tab-price">
+    <section class="card">
+      <h2>價格比對</h2>
+      <p class="section-note">比對鼎新明細的單價 與 客戶價格查核表（套用檔期促銷後）的正確價格。</p>
+      <div class="toolbar">
+        <label><input type="checkbox" id="priceOnlyDiff" checked> 只顯示異常</label>
+        <button class="secondary" id="btnExportPrice">匯出Excel</button>
+      </div>
+      <div class="stat-row" id="priceStats"></div>
+      <div id="priceResults"><div class="empty-state">請先上傳檔案並按「開始比對」</div></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" id="tab-alias">
+    <section class="card">
+      <h2>待對照店家</h2>
+      <p class="section-note">LINE 店名經過排除業務員名單後，若仍找不到對應的鼎新客戶，會列在這裡。選好對應客戶後會記住，之後同店名自動比對。</p>
+      <div class="pending-list" id="pendingStores"><div class="empty-state">目前沒有待對照店家</div></div>
+    </section>
+    <section class="card">
+      <h2>待對照品項</h2>
+      <p class="section-note">LINE 品項簡稱若找不到對應的鼎新品號，會列在這裡。</p>
+      <div class="pending-list" id="pendingItems"><div class="empty-state">目前沒有待對照品項</div></div>
+    </section>
+    <section class="card">
+      <h2>已建立的對照表</h2>
+      <div class="toolbar">
+        <button class="secondary" id="btnExportConfig">匯出設定 JSON</button>
+        <label class="secondary" style="display:inline-block;padding:7px 14px;border:1px solid var(--primary);border-radius:6px;cursor:pointer;">
+          匯入設定 JSON<input type="file" id="fileImportConfig" accept=".json" style="display:none">
+        </label>
+      </div>
+      <h3>店家對照</h3>
+      <div id="storeAliasTable"></div>
+      <h3>品項對照</h3>
+      <div id="itemAliasTable"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" id="tab-exclude">
+    <section class="card">
+      <h2>業務員/暱稱排除名單</h2>
+      <p class="section-note">解析 LINE 訊息開頭時，會把這些名字從文字中移除，剩下的就當作店家名稱。</p>
+      <div class="form-row">
+        <input type="text" id="newExcludeName" placeholder="輸入要排除的名稱">
+        <button id="btnAddExclude">新增</button>
+      </div>
+      <div class="tag-list" id="excludeList"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" id="tab-promo">
+    <section class="card">
+      <h2>檔期促銷設定</h2>
+      <p class="section-note">可針對特定店家的單一品項、或整店，設定折扣（進價打幾折）或指定價格，並限定生效區間。生效期間內，價格比對會用促銷後的價格當作「正確價格」。</p>
+      <div class="form-row">
+        <select id="promoStore"></select>
+        <select id="promoScope">
+          <option value="store">整店</option>
+          <option value="item">單一品項</option>
+        </select>
+        <select id="promoItem" style="display:none"></select>
+        <select id="promoType">
+          <option value="percent">折扣（%）例如90=9折</option>
+          <option value="fixed">指定價格</option>
+        </select>
+        <input type="number" id="promoValue" placeholder="數值" style="width:100px">
+        <input type="date" id="promoStart" placeholder="開始日">
+        <input type="date" id="promoEnd" placeholder="結束日">
+        <input type="text" id="promoNote" placeholder="備註（選填）">
+        <button id="btnAddPromo">新增促銷</button>
+      </div>
+      <div id="promoTable"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" id="tab-help">
+    <section class="card">
+      <h2>使用說明</h2>
+      <ol>
+        <li>從鼎新匯出「銷退貨明細表」Excel，從 LINE 匯出聊天記錄 txt，準備好「客戶價格查核表」xlsm，三個檔案都上傳。</li>
+        <li>設定比對日期範圍（通常抓當天或當週），按「開始比對」。</li>
+        <li>如果「店家/品項對照」頁簽出現待處理項目，先選好對應的鼎新客戶/品號，設定會自動記住，之後不用再選。</li>
+        <li>「訂單比對」頁簽會列出每個店家當天 LINE 訂的內容 vs 鼎新實際登打的數量，紅色代表有差異。</li>
+        <li>「價格比對」頁簽會列出單價異常的項目，可以匯出成 Excel 給主管看。</li>
+        <li>「檔期促銷設定」可以設定像「魚中魚南屯 進價9折 到09月底」這種限時價格，設定好之後價格比對會自動套用。</li>
+        <li>所有設定（排除名單/對照表/促銷）都存在你瀏覽器裡，換電腦或給同事用時，用「匯出設定 JSON」把設定檔傳給對方，對方「匯入設定 JSON」即可同步。</li>
+      </ol>
+    </section>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="assets/normalize.js"></script>
+<script src="assets/lineParser.js"></script>
+<script src="assets/dingxinParser.js"></script>
+<script src="assets/priceTable.js"></script>
+<script src="assets/matcher.js"></script>
+<script src="assets/storage.js"></script>
+<script src="assets/app.js"></script>
