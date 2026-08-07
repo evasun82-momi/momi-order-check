@@ -61,18 +61,11 @@ const Matcher = (() => {
     return { resolved, pendingStores, pendingItems };
   }
 
-  // 鼎新登打日期 D 對應的LINE下單時段是「前一天09:00 ~ 當天12:00」
-  // 所以中午12:00前送出的LINE訊息算當天的單，12:00以後(含)算隔天的單
-  function nextDayStr(dateStr) {
-    const d = new Date(dateStr + 'T00:00:00');
-    d.setDate(d.getDate() + 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }
+  // 完全以助理打的截止線（如「8/6早----」）為分割單位；截止線出現前的訊息沒有依據可判斷，
+  // 就先用當下的日曆日期，不再用09:00/12:00猜測。
   function effectiveOrderDate(block) {
-    if (block.businessDateOverride) return block.businessDateOverride; // 助理打的截止線優先
-    if (!block.date) return block.date;
-    if (!block.time || block.time < '12:00') return block.date;
-    return nextDayStr(block.date);
+    if (block.businessDateOverride) return block.businessDateOverride;
+    return block.date;
   }
 
   // 兩邊品項的重疊分數：數量重疊越多分數越高，用來把「一則LINE對話」配對到「一張鼎新單」
