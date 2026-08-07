@@ -4,6 +4,8 @@
     dingxinRows: [],
     lineBlocks: [],
     priceTable: null,
+    customerMaster: [],
+    quoteMaster: new Map(),
     lineResolved: [],
     pendingStores: new Map(),
     pendingItems: new Map(),
@@ -69,6 +71,41 @@
     refreshPromoSelectors();
   });
 
+  $('fileCustomer').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const buf = await readArrayBuffer(file);
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    state.customerMaster = CustomerParser.parse(wb);
+    $('statusCustomer').textContent = `已讀取 ${state.customerMaster.length} 個客戶`;
+    refreshPromoSelectors();
+  });
+
+  $('fileQuote').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const buf = await readArrayBuffer(file);
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    state.quoteMaster = QuoteParser.parse(wb);
+    $('statusQuote').textContent = `已讀取 ${state.quoteMaster.size} 個品項`;
+    refreshPromoSelectors();
+  });
+
+  function allStoreCandidates() {
+    const s = new Set(state.dingxinRows.map((r) => r.customer));
+    for (const c of state.customerMaster) s.add(c.name);
+    if (state.priceTable) for (const c of state.priceTable.customerList) s.add(c);
+    return [...s].filter(Boolean);
+  }
+
+  function allProductMaster() {
+    const m = new Map(state.priceTable ? state.priceTable.productMaster : []);
+    for (const [code, info] of state.quoteMaster) {
+      if (!m.has(code)) m.set(code, info.name);
+    }
+    return m;
+  }
+
   function autoSetDateRange() {
     const dates = state.dingxinRows.map((r) => r.date).filter(Boolean).sort();
     if (dates.length) {
@@ -88,9 +125,8 @@
   });
 
   function runCompare() {
-    const dingxinCustomers = [...new Set(state.dingxinRows.map((r) => r.customer))];
     const { resolved, pendingStores, pendingItems } = Matcher.buildLineIndex(
-      state.lineBlocks, state.config, dingxinCustomers, state.priceTable.productMaster
+      state.lineBlocks, state.config, allStoreCandidates(), allProductMaster()
     );
     state.lineResolved = resolved;
     state.pendingStores = pendingStores;
@@ -115,7 +151,7 @@
     for (const row of state.dingxinRows) {
       if (!row.date || !inRange(row.date)) continue;
       if (!row.itemCode) continue;
-      const cp = PriceTable.correctPrice(state.priceTable, state.config.promotions, row.customer, row.itemCode, row.date);
+      const cp = PriceTable.correctPrice(state.priceTable, state.config.promotions, row.customer, row.itemCode, row.date, state.quoteMaster);
       let status = 'unknown';
       if (cp.price != null) status = (row.unitPrice === cp.price) ? 'ok' : 'diff';
       out.push({ ...row, correctPrice: cp.price, priceSource: cp.source, promo: cp.promo, status });
@@ -127,7 +163,7 @@
   function renderPendingStores() {
     const el = $('pendingStores');
     if (!state.pendingStores.size) { el.innerHTML = '<div class="empty-state">目前沒有待對照店家</div>'; return; }
-    const customers = [...new Set(state.dingxinRows.map((r) => r.customer))].sort();
+    const customers = allStoreCandidates().sort();
     let html = '<div class="pending-list">';
     for (const [key, info] of state.pendingStores) {
       const options = customers.map((c) => `<option value="${escapeAttr(c)}" ${info.suggestion === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
@@ -155,7 +191,7 @@
   function renderPendingItems() {
     const el = $('pendingItems');
     if (!state.pendingItems.size) { el.innerHTML = '<div class="empty-state">目前沒有待對照品項</div>'; return; }
-    const products = [...state.priceTable.productMaster.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const products = [...allProductMaster().entries()].sort((a, b) => a[0].localeCompare(b[0]));
     let html = '<div class="pending-list">';
     for (const [key, info] of state.pendingItems) {
       const options = products.map(([code, name]) => `<option value="${escapeAttr(code)}" ${info.suggestion === code ? 'selected' : ''}>${escapeHtml(code)} - ${escapeHtml(name)}</option>`).join('');
@@ -293,11 +329,10 @@
 
   // ---------- promotions ----------
   function refreshPromoSelectors() {
-    if (!state.priceTable) return;
     const storeSel = $('promoStore');
-    storeSel.innerHTML = state.priceTable.customerList.slice().sort().map((c) => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+    storeSel.innerHTML = allStoreCandidates().sort().map((c) => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
     const itemSel = $('promoItem');
-    itemSel.innerHTML = [...state.priceTable.productMaster.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    itemSel.innerHTML = [...allProductMaster().entries()].sort((a, b) => a[0].localeCompare(b[0]))
       .map(([code, name]) => `<option value="${escapeAttr(code)}">${escapeHtml(code)} - ${escapeHtml(name)}</option>`).join('');
     renderPromoTable();
   }
@@ -305,7 +340,7 @@
     $('promoItem').style.display = $('promoScope').value === 'item' ? '' : 'none';
   });
   $('btnAddPromo').addEventListener('click', () => {
-    if (!state.priceTable) { alert('請先上傳客戶價格查核表'); return; }
+    if (!$('promoStore').options.length) { alert('請先上傳客戶價格查核表或客戶資料表'); return; }
     const scope = $('promoScope').value;
     const promo = {
       id: `p${Date.now()}`,

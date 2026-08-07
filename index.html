@@ -28,6 +28,16 @@
         <input type="file" id="filePrice" accept=".xlsm,.xlsx">
         <div class="upload-status" id="statusPrice"></div>
       </div>
+      <div class="upload-item">
+        <label>客戶資料表（.xlsx，選填，提供完整店家名單）</label>
+        <input type="file" id="fileCustomer" accept=".xlsx,.xls">
+        <div class="upload-status" id="statusCustomer"></div>
+      </div>
+      <div class="upload-item">
+        <label>商品報價單（.xlsx，選填，補充新品項如飲水機）</label>
+        <input type="file" id="fileQuote" accept=".xlsx,.xls">
+        <div class="upload-status" id="statusQuote"></div>
+      </div>
     </div>
     <div class="toolbar">
       <label>比對日期範圍</label>
@@ -154,6 +164,8 @@
 <script src="assets/normalize.js"></script>
 <script src="assets/lineParser.js"></script>
 <script src="assets/dingxinParser.js"></script>
+<script src="assets/customerParser.js"></script>
+<script src="assets/quoteParser.js"></script>
 <script src="assets/priceTable.js"></script>
 <script src="assets/matcher.js"></script>
 <script src="assets/storage.js"></script>

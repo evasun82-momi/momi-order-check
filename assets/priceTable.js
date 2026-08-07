@@ -45,14 +45,19 @@ const PriceTable = (() => {
     return { customerProductPrice, customerTier, tierPrice, productMaster, customerList: [...customerTier.keys()] };
   }
 
-  // basePrice: 客戶特定價 優先，其次用客戶折扣等級對應等級報價
-  function basePrice(table, customer, itemCode) {
+  // basePrice: 客戶特定價 優先，其次用客戶折扣等級對應等級報價，
+  // 最後用報價單「到店價」當作沒有客戶別價格資料時的參考基準（例如新品項飲水機）
+  function basePrice(table, customer, itemCode, quoteMaster) {
     const direct = table.customerProductPrice.get(`${customer}|${itemCode}`);
     if (direct != null && !isNaN(direct)) return { price: direct, source: '客戶特定價' };
     const tier = table.customerTier.get(customer);
     if (tier) {
       const tp = table.tierPrice.get(`${tier}|${itemCode}`);
       if (tp != null && !isNaN(tp)) return { price: tp, source: `等級報價(${tier}折)` };
+    }
+    if (quoteMaster && quoteMaster.has(itemCode)) {
+      const q = quoteMaster.get(itemCode);
+      if (q.listPrice != null) return { price: q.listPrice, source: '報價單到店價(參考)' };
     }
     return { price: null, source: null };
   }
@@ -76,8 +81,8 @@ const PriceTable = (() => {
     return Number(promo.value);
   }
 
-  function correctPrice(table, promotions, customer, itemCode, dateStr) {
-    const base = basePrice(table, customer, itemCode);
+  function correctPrice(table, promotions, customer, itemCode, dateStr, quoteMaster) {
+    const base = basePrice(table, customer, itemCode, quoteMaster);
     if (base.price == null) return { price: null, source: null, promo: null };
     const promo = findActivePromo(promotions, customer, itemCode, dateStr);
     if (promo) {
