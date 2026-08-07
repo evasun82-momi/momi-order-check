@@ -61,6 +61,20 @@ const Matcher = (() => {
     return { resolved, pendingStores, pendingItems };
   }
 
+  // 鼎新登打日期 D 對應的LINE下單時段是「前一天09:00 ~ 當天12:00」
+  // 所以中午12:00前送出的LINE訊息算當天的單，12:00以後(含)算隔天的單
+  function nextDayStr(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function effectiveOrderDate(block) {
+    if (block.businessDateOverride) return block.businessDateOverride; // 助理打的截止線優先
+    if (!block.date) return block.date;
+    if (!block.time || block.time < '12:00') return block.date;
+    return nextDayStr(block.date);
+  }
+
   // 兩邊品項的重疊分數：數量重疊越多分數越高，用來把「一則LINE對話」配對到「一張鼎新單」
   function overlapScore(lineMap, dxMap) {
     let score = 0;
@@ -102,18 +116,19 @@ const Matcher = (() => {
       dxByStoreDate.get(k).push(o);
     }
 
-    const lineByStoreDate = new Map(); // customer|date -> [{block,itemMap},...]
+    const lineByStoreDate = new Map(); // customer|effectiveDate -> [{block,itemMap,effectiveDate},...]
     for (const block of lineResolved) {
-      if (!block.customer || !block.date || !inRange(block.date)) continue;
+      const orderDate = effectiveOrderDate(block);
+      if (!block.customer || !orderDate || !inRange(orderDate)) continue;
       const itemMap = new Map();
       for (const it of block.items) {
         if (!it.itemCode) continue;
         itemMap.set(it.itemCode, (itemMap.get(it.itemCode) || 0) + it.qty);
       }
       if (!itemMap.size) continue;
-      const k = `${block.customer}|${block.date}`;
+      const k = `${block.customer}|${orderDate}`;
       if (!lineByStoreDate.has(k)) lineByStoreDate.set(k, []);
-      lineByStoreDate.get(k).push({ block, itemMap });
+      lineByStoreDate.get(k).push({ block, itemMap, effectiveDate: orderDate });
     }
 
     const allKeys = new Set([...dxByStoreDate.keys(), ...lineByStoreDate.keys()]);
@@ -137,7 +152,7 @@ const Matcher = (() => {
         usedLine.add(p.i); usedDx.add(p.j);
         const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items);
         results.push({
-          customer, date, lineTime: lineList[p.i].block.time, lineHeader: lineList[p.i].block.rawHeader,
+          customer, date, lineTime: lineList[p.i].block.time, lineDate: lineList[p.i].block.date, lineHeader: lineList[p.i].block.rawHeader,
           orderNo: dxList[p.j].orderNo, matched: true, ...diff
         });
       }
@@ -145,7 +160,7 @@ const Matcher = (() => {
         if (usedLine.has(i)) continue;
         const diff = buildDiffRows(lineList[i].itemMap, new Map());
         results.push({
-          customer, date, lineTime: lineList[i].block.time, lineHeader: lineList[i].block.rawHeader,
+          customer, date, lineTime: lineList[i].block.time, lineDate: lineList[i].block.date, lineHeader: lineList[i].block.rawHeader,
           orderNo: null, matched: false, unmatchedSide: 'line', ...diff, hasDiff: true
         });
       }

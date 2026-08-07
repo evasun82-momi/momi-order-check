@@ -39,7 +39,7 @@ const LineParser = (() => {
     const recalled = content.endsWith(RECALL_TEXT);
     if (recalled) content = content.slice(0, content.length - RECALL_TEXT.length).trim();
 
-    const { storeName, orderRefs, skip } = extractStoreName(content, excludedNames);
+    const { storeName, orderRefs, skip, cutoffMarker } = extractStoreName(content, excludedNames);
 
     return {
       time: `${hh.padStart(2, '0')}:${mm}`,
@@ -49,7 +49,8 @@ const LineParser = (() => {
       rawContent: content,
       storeNameRaw: storeName,
       orderRefs,
-      skip
+      skip,
+      cutoffMarker
     };
   }
 
@@ -76,7 +77,13 @@ const LineParser = (() => {
     s = s.replace(/[｜|・.,，、\-]+/g, ' ');
     s = normSpace(s);
 
-    if (!s || s === '圖片' || s === '影片' || ATTACHMENT_RE.test(s) || /^-+$/.test(s) || /^\d{1,2}\/\d{1,2}早$/.test(s)) {
+    // 助理常打的截止線，例如「8/6早----」「10/23早----」，用來標記當天訂單的分界
+    const cutoffMatch = /^(\d{1,2})\/(\d{1,2})[早午晚夜]?$/.exec(s);
+    if (cutoffMatch) {
+      return { storeName: null, orderRefs: [], skip: true, cutoffMarker: { month: Number(cutoffMatch[1]), day: Number(cutoffMatch[2]) } };
+    }
+
+    if (!s || s === '圖片' || s === '影片' || ATTACHMENT_RE.test(s) || /^-+$/.test(s)) {
       return { storeName: null, orderRefs: [], skip: true };
     }
 
@@ -151,6 +158,7 @@ const LineParser = (() => {
     const lines = text.split(/\r?\n/);
     const blocks = [];
     let currentDate = null;
+    let currentBusinessDate = null; // 由助理打的截止線（如「8/6早----」）決定，優先於09:00/12:00規則
     let currentBlock = null;
     let internalMode = false;
 
@@ -180,6 +188,14 @@ const LineParser = (() => {
           continue;
         }
         pushBlock();
+        if (header.cutoffMarker) {
+          const year = currentDate ? Number(currentDate.slice(0, 4)) : new Date().getFullYear();
+          const mm = String(header.cutoffMarker.month).padStart(2, '0');
+          const dd = String(header.cutoffMarker.day).padStart(2, '0');
+          currentBusinessDate = `${year}-${mm}-${dd}`;
+          currentBlock = null;
+          continue;
+        }
         if (header.skip || !header.storeNameRaw) {
           currentBlock = null;
           continue;
@@ -188,6 +204,7 @@ const LineParser = (() => {
           id: `${currentDate || 'unknown'}_${header.time}_${blocks.length}`,
           date: currentDate,
           time: header.time,
+          businessDateOverride: currentBusinessDate,
           storeNameRaw: header.storeNameRaw,
           orderRefs: header.orderRefs,
           rawHeader: header.raw,

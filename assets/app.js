@@ -326,8 +326,11 @@
       if (g.unmatchedSide === 'line') badge = '<span class="badge badge-warn">⚠️ LINE有下單，鼎新找不到對應</span>';
       else if (g.unmatchedSide === 'dingxin') badge = '<span class="badge badge-warn">⚠️ 鼎新有單，LINE找不到對應對話</span>';
       else if (g.hasDiff) badge = '<span class="badge badge-diff">有差異</span>';
+      const lineSentLabel = g.lineTime
+        ? (g.lineDate && g.lineDate !== g.date ? `LINE送出於 ${g.lineDate} ${g.lineTime}（歸入 ${g.date} 訂單）` : `LINE時間 ${g.lineTime}`)
+        : null;
       const meta = [
-        g.lineTime ? `LINE時間 ${g.lineTime}` : null,
+        lineSentLabel,
         g.orderNo ? `鼎新單號 ${g.orderNo}` : null
       ].filter(Boolean).join(' ｜ ');
       html += `<div class="order-block"><div class="block-header"><strong>${escapeHtml(g.customer)} - ${g.date}</strong>${badge}</div>`;
