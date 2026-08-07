@@ -309,20 +309,33 @@
   function renderOrderResults() {
     const el = $('orderResults');
     const diffCount = state.orderCompare.filter((g) => g.hasDiff).length;
+    const unmatchedLineCount = state.orderCompare.filter((g) => g.unmatchedSide === 'line').length;
+    const unmatchedDxCount = state.orderCompare.filter((g) => g.unmatchedSide === 'dingxin').length;
     $('orderStats').innerHTML = `
-      <div class="stat"><b>${state.orderCompare.length}</b>店家×日期 組合</div>
+      <div class="stat"><b>${state.orderCompare.length}</b>則對話/訂單</div>
       <div class="stat"><b>${diffCount}</b>有差異</div>
+      <div class="stat"><b>${unmatchedLineCount}</b>LINE有下單但鼎新找不到對應</div>
+      <div class="stat"><b>${unmatchedDxCount}</b>鼎新有單但LINE找不到對應對話</div>
       <div class="stat"><b>${state.pendingStores.size}</b>待對照店家</div>
       <div class="stat"><b>${state.pendingItems.size}</b>待對照品項</div>
     `;
     if (!state.orderCompare.length) { el.innerHTML = '<div class="empty-state">此區間沒有可比對的資料</div>'; return; }
     let html = '';
     for (const g of state.orderCompare) {
-      const badge = g.hasDiff ? '<span class="badge badge-diff">有差異</span>' : '<span class="badge badge-ok">一致</span>';
+      let badge = '<span class="badge badge-ok">一致</span>';
+      if (g.unmatchedSide === 'line') badge = '<span class="badge badge-warn">⚠️ LINE有下單，鼎新找不到對應</span>';
+      else if (g.unmatchedSide === 'dingxin') badge = '<span class="badge badge-warn">⚠️ 鼎新有單，LINE找不到對應對話</span>';
+      else if (g.hasDiff) badge = '<span class="badge badge-diff">有差異</span>';
+      const meta = [
+        g.lineTime ? `LINE時間 ${g.lineTime}` : null,
+        g.orderNo ? `鼎新單號 ${g.orderNo}` : null
+      ].filter(Boolean).join(' ｜ ');
       html += `<div class="order-block"><div class="block-header"><strong>${escapeHtml(g.customer)} - ${g.date}</strong>${badge}</div>`;
+      if (meta) html += `<div class="section-note" style="margin-top:-6px">${escapeHtml(meta)}</div>`;
+      if (g.lineHeader) html += `<div class="section-note">原始訊息：${escapeHtml(g.lineHeader)}</div>`;
       html += '<div class="block-body">' + tableHtml(
-        ['品號', '品名', 'LINE數量', '鼎新數量', '差異', '鼎新單號'],
-        g.rows.map((r) => [r.itemCode, productDisplayName(r.itemCode), r.lineQty, r.dxQty, r.diff, r.orderNos.join('、') || '-']),
+        ['品號', '品名', 'LINE數量', '鼎新數量', '差異'],
+        g.rows.map((r) => [r.itemCode, productDisplayName(r.itemCode), r.lineQty, r.dxQty, r.diff]),
         (r) => (r[4] !== 0 ? 'row-diff' : 'row-ok')
       ) + '</div></div>';
     }

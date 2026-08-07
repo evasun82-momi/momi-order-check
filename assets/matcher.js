@@ -61,55 +61,104 @@ const Matcher = (() => {
     return { resolved, pendingStores, pendingItems };
   }
 
-  // 依 店家+日期 彙總 LINE 與 鼎新 的數量，做差異比對
+  // 兩邊品項的重疊分數：數量重疊越多分數越高，用來把「一則LINE對話」配對到「一張鼎新單」
+  function overlapScore(lineMap, dxMap) {
+    let score = 0;
+    for (const [code, qty] of lineMap) score += Math.min(qty, dxMap.get(code) || 0);
+    return score;
+  }
+
+  function buildDiffRows(lineMap, dxMap) {
+    const itemCodes = new Set([...lineMap.keys(), ...dxMap.keys()]);
+    const rows = [];
+    let hasDiff = false;
+    for (const code of itemCodes) {
+      const lineQty = lineMap.get(code) || 0;
+      const dxQty = dxMap.get(code) || 0;
+      const diff = dxQty - lineQty;
+      if (diff !== 0) hasDiff = true;
+      rows.push({ itemCode: code, lineQty, dxQty, diff });
+    }
+    return { rows: rows.sort((a, b) => a.itemCode.localeCompare(b.itemCode)), hasDiff };
+  }
+
+  // 「一則LINE對話 = 一張鼎新單」：同店同天可能有多則對話、多張單，
+  // 用品項重疊分數做貪婪配對，而不是把整天全部加總在一起比對
   function compareOrders(lineResolved, dingxinRows, dateFrom, dateTo) {
     const inRange = (d) => (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo);
 
-    const dingxinByKey = new Map(); // customer|date -> Map(itemCode -> {qty, orderNos:Set})
+    const dxOrders = new Map(); // customer|date|orderNo -> {customer,date,orderNo,items:Map}
     for (const row of dingxinRows) {
-      if (!row.date || !inRange(row.date)) continue;
-      if (!row.itemCode) continue;
-      const key = `${row.customer}|${row.date}`;
-      if (!dingxinByKey.has(key)) dingxinByKey.set(key, new Map());
-      const m = dingxinByKey.get(key);
-      const entry = m.get(row.itemCode) || { qty: 0, orderNos: new Set() };
-      entry.qty += row.qty;
-      if (row.orderNo) entry.orderNos.add(row.orderNo);
-      m.set(row.itemCode, entry);
+      if (!row.date || !inRange(row.date) || !row.itemCode) continue;
+      const key = `${row.customer}|${row.date}|${row.orderNo}`;
+      if (!dxOrders.has(key)) dxOrders.set(key, { customer: row.customer, date: row.date, orderNo: row.orderNo, items: new Map() });
+      const o = dxOrders.get(key);
+      o.items.set(row.itemCode, (o.items.get(row.itemCode) || 0) + row.qty);
+    }
+    const dxByStoreDate = new Map(); // customer|date -> [order,...]
+    for (const o of dxOrders.values()) {
+      const k = `${o.customer}|${o.date}`;
+      if (!dxByStoreDate.has(k)) dxByStoreDate.set(k, []);
+      dxByStoreDate.get(k).push(o);
     }
 
-    const lineByKey = new Map();
+    const lineByStoreDate = new Map(); // customer|date -> [{block,itemMap},...]
     for (const block of lineResolved) {
       if (!block.customer || !block.date || !inRange(block.date)) continue;
-      const key = `${block.customer}|${block.date}`;
-      if (!lineByKey.has(key)) lineByKey.set(key, new Map());
-      const m = lineByKey.get(key);
+      const itemMap = new Map();
       for (const it of block.items) {
         if (!it.itemCode) continue;
-        m.set(it.itemCode, (m.get(it.itemCode) || 0) + it.qty);
+        itemMap.set(it.itemCode, (itemMap.get(it.itemCode) || 0) + it.qty);
       }
+      if (!itemMap.size) continue;
+      const k = `${block.customer}|${block.date}`;
+      if (!lineByStoreDate.has(k)) lineByStoreDate.set(k, []);
+      lineByStoreDate.get(k).push({ block, itemMap });
     }
 
-    const allKeys = new Set([...dingxinByKey.keys(), ...lineByKey.keys()]);
+    const allKeys = new Set([...dxByStoreDate.keys(), ...lineByStoreDate.keys()]);
     const results = [];
     for (const key of allKeys) {
       const [customer, date] = key.split('|');
-      const lineMap = lineByKey.get(key) || new Map();
-      const dxMap = dingxinByKey.get(key) || new Map();
-      const itemCodes = new Set([...lineMap.keys(), ...dxMap.keys()]);
-      const rows = [];
-      let hasDiff = false;
-      for (const code of itemCodes) {
-        const lineQty = lineMap.get(code) || 0;
-        const dxEntry = dxMap.get(code);
-        const dxQty = dxEntry ? dxEntry.qty : 0;
-        const diff = dxQty - lineQty;
-        if (diff !== 0) hasDiff = true;
-        rows.push({ itemCode: code, lineQty, dxQty, diff, orderNos: dxEntry ? [...dxEntry.orderNos] : [] });
+      const dxList = dxByStoreDate.get(key) || [];
+      const lineList = lineByStoreDate.get(key) || [];
+
+      const pairs = [];
+      for (let i = 0; i < lineList.length; i++) {
+        for (let j = 0; j < dxList.length; j++) {
+          const score = overlapScore(lineList[i].itemMap, dxList[j].items);
+          if (score > 0) pairs.push({ i, j, score });
+        }
       }
-      results.push({ customer, date, rows: rows.sort((a, b) => a.itemCode.localeCompare(b.itemCode)), hasDiff });
+      pairs.sort((a, b) => b.score - a.score);
+      const usedLine = new Set(), usedDx = new Set();
+      for (const p of pairs) {
+        if (usedLine.has(p.i) || usedDx.has(p.j)) continue;
+        usedLine.add(p.i); usedDx.add(p.j);
+        const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items);
+        results.push({
+          customer, date, lineTime: lineList[p.i].block.time, lineHeader: lineList[p.i].block.rawHeader,
+          orderNo: dxList[p.j].orderNo, matched: true, ...diff
+        });
+      }
+      for (let i = 0; i < lineList.length; i++) {
+        if (usedLine.has(i)) continue;
+        const diff = buildDiffRows(lineList[i].itemMap, new Map());
+        results.push({
+          customer, date, lineTime: lineList[i].block.time, lineHeader: lineList[i].block.rawHeader,
+          orderNo: null, matched: false, unmatchedSide: 'line', ...diff, hasDiff: true
+        });
+      }
+      for (let j = 0; j < dxList.length; j++) {
+        if (usedDx.has(j)) continue;
+        const diff = buildDiffRows(new Map(), dxList[j].items);
+        results.push({
+          customer, date, lineTime: null, lineHeader: null,
+          orderNo: dxList[j].orderNo, matched: false, unmatchedSide: 'dingxin', ...diff, hasDiff: true
+        });
+      }
     }
-    return results.sort((a, b) => (a.date + a.customer).localeCompare(b.date + b.customer));
+    return results.sort((a, b) => (a.date + a.customer + (a.lineTime || '')).localeCompare(b.date + b.customer + (b.lineTime || '')));
   }
 
   return { resolveStore, resolveItem, buildLineIndex, compareOrders };
