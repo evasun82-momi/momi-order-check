@@ -24,19 +24,22 @@
         <div class="upload-status" id="statusLine"></div>
       </div>
       <div class="upload-item">
-        <label>客戶價格查核表（.xlsm）</label>
+        <label>客戶價格查核表（.xlsm，會記住上次上傳，不用每次重選）</label>
         <input type="file" id="filePrice" accept=".xlsm,.xlsx">
         <div class="upload-status" id="statusPrice"></div>
+        <button type="button" class="secondary ref-clear-btn" id="btnClearPrice" style="display:none">清除已記住的檔案</button>
       </div>
       <div class="upload-item">
-        <label>客戶資料表（.xlsx，選填，提供完整店家名單）</label>
+        <label>客戶資料表（.xlsx，選填，提供完整店家名單，會記住上次上傳）</label>
         <input type="file" id="fileCustomer" accept=".xlsx,.xls">
         <div class="upload-status" id="statusCustomer"></div>
+        <button type="button" class="secondary ref-clear-btn" id="btnClearCustomer" style="display:none">清除已記住的檔案</button>
       </div>
       <div class="upload-item">
-        <label>商品報價單（.xlsx，選填，補充新品項如飲水機）</label>
+        <label>商品報價單（.xlsx，選填，補充新品項如飲水機，會記住上次上傳）</label>
         <input type="file" id="fileQuote" accept=".xlsx,.xls">
         <div class="upload-status" id="statusQuote"></div>
+        <button type="button" class="secondary ref-clear-btn" id="btnClearQuote" style="display:none">清除已記住的檔案</button>
       </div>
     </div>
     <div class="toolbar">
@@ -168,5 +171,6 @@
 <script src="assets/quoteParser.js"></script>
 <script src="assets/priceTable.js"></script>
 <script src="assets/matcher.js"></script>
+<script src="assets/refStorage.js"></script>
 <script src="assets/storage.js"></script>
 <script src="assets/app.js"></script>

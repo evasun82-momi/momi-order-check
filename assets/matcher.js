@@ -65,14 +65,17 @@ const Matcher = (() => {
   function compareOrders(lineResolved, dingxinRows, dateFrom, dateTo) {
     const inRange = (d) => (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo);
 
-    const dingxinByKey = new Map(); // customer|date -> Map(itemCode -> qty)
+    const dingxinByKey = new Map(); // customer|date -> Map(itemCode -> {qty, orderNos:Set})
     for (const row of dingxinRows) {
       if (!row.date || !inRange(row.date)) continue;
       if (!row.itemCode) continue;
       const key = `${row.customer}|${row.date}`;
       if (!dingxinByKey.has(key)) dingxinByKey.set(key, new Map());
       const m = dingxinByKey.get(key);
-      m.set(row.itemCode, (m.get(row.itemCode) || 0) + row.qty);
+      const entry = m.get(row.itemCode) || { qty: 0, orderNos: new Set() };
+      entry.qty += row.qty;
+      if (row.orderNo) entry.orderNos.add(row.orderNo);
+      m.set(row.itemCode, entry);
     }
 
     const lineByKey = new Map();
@@ -98,10 +101,11 @@ const Matcher = (() => {
       let hasDiff = false;
       for (const code of itemCodes) {
         const lineQty = lineMap.get(code) || 0;
-        const dxQty = dxMap.get(code) || 0;
+        const dxEntry = dxMap.get(code);
+        const dxQty = dxEntry ? dxEntry.qty : 0;
         const diff = dxQty - lineQty;
         if (diff !== 0) hasDiff = true;
-        rows.push({ itemCode: code, lineQty, dxQty, diff });
+        rows.push({ itemCode: code, lineQty, dxQty, diff, orderNos: dxEntry ? [...dxEntry.orderNos] : [] });
       }
       results.push({ customer, date, rows: rows.sort((a, b) => a.itemCode.localeCompare(b.itemCode)), hasDiff });
     }

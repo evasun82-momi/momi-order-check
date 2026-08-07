@@ -67,7 +67,9 @@
     const buf = await readArrayBuffer(file);
     const wb = XLSX.read(buf, { type: 'array', cellDates: true });
     state.priceTable = PriceTable.build(wb);
-    $('statusPrice').textContent = `已讀取 ${state.priceTable.customerList.length} 個客戶 / ${state.priceTable.productMaster.size} 個品項`;
+    RefStorage.savePrice(state.priceTable, file.name);
+    $('statusPrice').textContent = `已讀取 ${state.priceTable.customerList.length} 個客戶 / ${state.priceTable.productMaster.size} 個品項（已記住，下次自動帶入）`;
+    $('btnClearPrice').style.display = '';
     refreshPromoSelectors();
   });
 
@@ -77,7 +79,9 @@
     const buf = await readArrayBuffer(file);
     const wb = XLSX.read(buf, { type: 'array', cellDates: true });
     state.customerMaster = CustomerParser.parse(wb);
-    $('statusCustomer').textContent = `已讀取 ${state.customerMaster.length} 個客戶`;
+    RefStorage.saveCustomer(state.customerMaster, file.name);
+    $('statusCustomer').textContent = `已讀取 ${state.customerMaster.length} 個客戶（已記住，下次自動帶入）`;
+    $('btnClearCustomer').style.display = '';
     refreshPromoSelectors();
   });
 
@@ -87,9 +91,55 @@
     const buf = await readArrayBuffer(file);
     const wb = XLSX.read(buf, { type: 'array', cellDates: true });
     state.quoteMaster = QuoteParser.parse(wb);
-    $('statusQuote').textContent = `已讀取 ${state.quoteMaster.size} 個品項`;
+    RefStorage.saveQuote(state.quoteMaster, file.name);
+    $('statusQuote').textContent = `已讀取 ${state.quoteMaster.size} 個品項（已記住，下次自動帶入）`;
+    $('btnClearQuote').style.display = '';
     refreshPromoSelectors();
   });
+
+  $('btnClearPrice').addEventListener('click', () => {
+    RefStorage.clear('price');
+    state.priceTable = null;
+    $('statusPrice').textContent = '';
+    $('btnClearPrice').style.display = 'none';
+    refreshPromoSelectors();
+  });
+  $('btnClearCustomer').addEventListener('click', () => {
+    RefStorage.clear('customer');
+    state.customerMaster = [];
+    $('statusCustomer').textContent = '';
+    $('btnClearCustomer').style.display = 'none';
+    refreshPromoSelectors();
+  });
+  $('btnClearQuote').addEventListener('click', () => {
+    RefStorage.clear('quote');
+    state.quoteMaster = new Map();
+    $('statusQuote').textContent = '';
+    $('btnClearQuote').style.display = 'none';
+    refreshPromoSelectors();
+  });
+
+  function loadPersistedReferences() {
+    const p = RefStorage.loadPrice();
+    if (p) {
+      state.priceTable = p.priceTable;
+      $('statusPrice').textContent = RefStorage.formatMeta(p.meta);
+      $('btnClearPrice').style.display = '';
+    }
+    const c = RefStorage.loadCustomer();
+    if (c) {
+      state.customerMaster = c.customerMaster;
+      $('statusCustomer').textContent = RefStorage.formatMeta(c.meta);
+      $('btnClearCustomer').style.display = '';
+    }
+    const q = RefStorage.loadQuote();
+    if (q) {
+      state.quoteMaster = q.quoteMaster;
+      $('statusQuote').textContent = RefStorage.formatMeta(q.meta);
+      $('btnClearQuote').style.display = '';
+    }
+    refreshPromoSelectors();
+  }
 
   function allStoreCandidates() {
     const s = new Set(state.dingxinRows.map((r) => r.customer));
@@ -260,8 +310,8 @@
       const badge = g.hasDiff ? '<span class="badge badge-diff">有差異</span>' : '<span class="badge badge-ok">一致</span>';
       html += `<div class="order-block"><div class="block-header"><strong>${escapeHtml(g.customer)} - ${g.date}</strong>${badge}</div>`;
       html += '<div class="block-body">' + tableHtml(
-        ['品號', 'LINE數量', '鼎新數量', '差異'],
-        g.rows.map((r) => [r.itemCode, r.lineQty, r.dxQty, r.diff]),
+        ['品號', 'LINE數量', '鼎新數量', '差異', '鼎新單號'],
+        g.rows.map((r) => [r.itemCode, r.lineQty, r.dxQty, r.diff, r.orderNos.join('、') || '-']),
         (r) => (r[3] !== 0 ? 'row-diff' : 'row-ok')
       ) + '</div></div>';
     }
@@ -415,4 +465,5 @@
   // ---------- init ----------
   renderExcludeList();
   renderAliasTables();
+  loadPersistedReferences();
 })();
