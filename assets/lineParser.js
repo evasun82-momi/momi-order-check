@@ -77,8 +77,9 @@ const LineParser = (() => {
     s = s.replace(/[｜|・.,，、\-]+/g, ' ');
     s = normSpace(s);
 
-    // 助理常打的截止線，例如「8/6早----」「10/23早----」，用來標記當天訂單的分界
-    const cutoffMatch = /^(\d{1,2})\/(\d{1,2})[早午晚夜]?$/.exec(s);
+    // 助理常打的截止線，例如「8/6早----」「8/10-----------------早」，用來標記當天訂單的分界
+    // （這條線出現「之前」累積的訊息，都算線上寫的那個日期）
+    const cutoffMatch = /^(\d{1,2})\/(\d{1,2})\s*[早午晚夜]?$/.exec(s);
     if (cutoffMatch) {
       return { storeName: null, orderRefs: [], skip: true, cutoffMarker: { month: Number(cutoffMatch[1]), day: Number(cutoffMatch[2]) } };
     }
@@ -157,13 +158,13 @@ const LineParser = (() => {
   function parse(text, excludedNames) {
     const lines = text.split(/\r?\n/);
     const blocks = [];
+    let pendingBlocks = []; // 還沒遇到截止線的區塊，遇到線之後回頭蓋上那條線寫的日期
     let currentDate = null;
-    let currentBusinessDate = null; // 由助理打的截止線（如「8/6早----」）決定，優先於09:00/12:00規則
     let currentBlock = null;
     let internalMode = false;
 
     function pushBlock() {
-      if (currentBlock && currentBlock.items.length > 0) blocks.push(currentBlock);
+      if (currentBlock && currentBlock.items.length > 0) pendingBlocks.push(currentBlock);
       currentBlock = null;
       internalMode = false;
     }
@@ -189,10 +190,16 @@ const LineParser = (() => {
         }
         pushBlock();
         if (header.cutoffMarker) {
+          // 截止線「之前」累積的區塊都算線上寫的那個日期
           const year = currentDate ? Number(currentDate.slice(0, 4)) : new Date().getFullYear();
           const mm = String(header.cutoffMarker.month).padStart(2, '0');
           const dd = String(header.cutoffMarker.day).padStart(2, '0');
-          currentBusinessDate = `${year}-${mm}-${dd}`;
+          const businessDate = `${year}-${mm}-${dd}`;
+          for (const b of pendingBlocks) {
+            b.businessDateOverride = businessDate;
+            blocks.push(b);
+          }
+          pendingBlocks = [];
           currentBlock = null;
           continue;
         }
@@ -201,10 +208,10 @@ const LineParser = (() => {
           continue;
         }
         currentBlock = {
-          id: `${currentDate || 'unknown'}_${header.time}_${blocks.length}`,
+          id: `${currentDate || 'unknown'}_${header.time}_${blocks.length + pendingBlocks.length}`,
           date: currentDate,
           time: header.time,
-          businessDateOverride: currentBusinessDate,
+          businessDateOverride: null,
           storeNameRaw: header.storeNameRaw,
           orderRefs: header.orderRefs,
           rawHeader: header.raw,
@@ -236,6 +243,8 @@ const LineParser = (() => {
       });
     }
     pushBlock();
+    // 檔案結束時還沒遇到下一條截止線的區塊，沒有依據可蓋日期，就照原本的日曆日期留著
+    for (const b of pendingBlocks) blocks.push(b);
     return blocks;
   }
 
