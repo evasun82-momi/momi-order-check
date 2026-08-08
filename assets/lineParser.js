@@ -190,13 +190,10 @@ const LineParser = (() => {
         }
         pushBlock();
         if (header.cutoffMarker) {
-          // 截止線「之前」累積的區塊都算線上寫的那個日期
-          const year = currentDate ? Number(currentDate.slice(0, 4)) : new Date().getFullYear();
-          const mm = String(header.cutoffMarker.month).padStart(2, '0');
-          const dd = String(header.cutoffMarker.day).padStart(2, '0');
-          const businessDate = `${year}-${mm}-${dd}`;
+          // 截止線「之前」累積的區塊都算這條線出現當下的日曆日期（不是線上寫的數字，
+          // 線上的數字似乎是配送日之類的另一個意思，不是訂單歸屬日）
           for (const b of pendingBlocks) {
-            b.businessDateOverride = businessDate;
+            b.businessDateOverride = currentDate;
             blocks.push(b);
           }
           pendingBlocks = [];
