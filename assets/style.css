@@ -85,6 +85,10 @@ tr.row-warn { background: var(--warn-bg); }
 .badge-muted { background: var(--border); color: var(--muted); }
 
 .block-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; cursor: pointer; }
+.compare-table th.col-a { background: rgba(37,197,94,0.12); }
+.compare-table th.col-b { background: rgba(37,99,235,0.12); }
+.compare-table td.col-a { border-right: 1px dashed var(--border); }
+.compare-table td.cell-diff { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
 .line-bubble {
   background: #95ec69; color: #1a1a1a; border-radius: 10px; padding: 10px 14px; margin: 6px 0 10px;
   font-size: 13px; line-height: 1.6; max-width: 480px; white-space: normal; word-break: break-word;

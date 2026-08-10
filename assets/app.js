@@ -359,13 +359,29 @@
         html += `<div class="line-bubble">${bubbleLines.join('<br>')}</div>`;
       }
 
-      html += '<div class="block-body">' + tableHtml(
-        ['品號', '品名', 'LINE數量', '鼎新數量', '差異'],
-        g.rows.map((r) => [r.itemCode, productDisplayName(r.itemCode), r.lineQty, r.dxQty, r.diff]),
-        (r) => (r[4] !== 0 ? 'row-diff' : 'row-ok')
-      ) + '</div></div>';
+      html += '<div class="block-body">' + compareTableHtml(g.rows) + '</div></div>';
     }
     el.innerHTML = html;
+  }
+
+  // 左右對照表：品名用鼎新中文名，不同的一格用顏色標出來（而不是只標整列）
+  function compareTableHtml(rows) {
+    let html = '<table class="compare-table"><thead><tr>' +
+      '<th>品名</th><th class="col-a">LINE數量</th><th class="col-b">鼎新數量</th><th>差異</th>' +
+      '</tr></thead><tbody>';
+    for (const r of rows) {
+      const mismatch = r.diff !== 0;
+      const lineCell = mismatch ? 'cell-diff' : '';
+      const dxCell = mismatch ? 'cell-diff' : '';
+      html += `<tr>
+        <td>${escapeHtml(productDisplayName(r.itemCode))}</td>
+        <td class="col-a ${lineCell}">${escapeHtml(r.lineQty)}</td>
+        <td class="col-b ${dxCell}">${escapeHtml(r.dxQty)}</td>
+        <td class="${mismatch ? 'cell-diff' : ''}">${escapeHtml(r.diff)}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    return html;
   }
   $('orderSearch').addEventListener('input', renderOrderResults);
   $('orderOnlyDiff').addEventListener('change', renderOrderResults);
@@ -383,16 +399,28 @@
     `;
     const el = $('priceResults');
     if (!rows.length) { el.innerHTML = '<div class="empty-state">沒有符合條件的資料</div>'; return; }
-    el.innerHTML = tableHtml(
-      ['日期', '單號', '客戶', '品號', '品名', '數量', '登打單價', '正確價格', '來源', '狀態'],
-      rows.map((r) => [
-        r.date, r.orderNo, r.customer, r.itemCode, productDisplayName(r.itemCode), r.qty, r.unitPrice,
-        r.correctPrice != null ? r.correctPrice : '-',
-        r.priceSource ? (r.promo ? `${r.priceSource}+促銷` : r.priceSource) : '-',
-        r.status === 'diff' ? '異常' : (r.status === 'ok' ? '正常' : '查無資料')
-      ]),
-      (r, i) => rows[i].status === 'diff' ? 'row-diff' : (rows[i].status === 'unknown' ? 'row-warn' : 'row-ok')
-    );
+    let html = '<table class="compare-table"><thead><tr>' +
+      '<th>日期</th><th>客戶</th><th>品名</th><th>數量</th><th class="col-a">登打單價</th>' +
+      '<th class="col-b">正確價格</th><th>來源</th><th>狀態</th></tr></thead><tbody>';
+    for (const r of rows) {
+      const mismatch = r.status === 'diff';
+      const cell = mismatch ? 'cell-diff' : '';
+      const statusBadge = r.status === 'diff'
+        ? '<span class="badge badge-diff">異常</span>'
+        : (r.status === 'ok' ? '<span class="badge badge-ok">正常</span>' : '<span class="badge badge-muted">查無資料</span>');
+      html += `<tr>
+        <td>${escapeHtml(r.date)}</td>
+        <td>${escapeHtml(r.customer)}</td>
+        <td>${escapeHtml(productDisplayName(r.itemCode))}</td>
+        <td>${escapeHtml(r.qty)}</td>
+        <td class="col-a ${cell}">${escapeHtml(r.unitPrice)}</td>
+        <td class="col-b ${cell}">${r.correctPrice != null ? escapeHtml(r.correctPrice) : '-'}</td>
+        <td>${escapeHtml(r.priceSource ? (r.promo ? `${r.priceSource}+促銷` : r.priceSource) : '-')}</td>
+        <td>${statusBadge}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
   }
   $('priceOnlyDiff').addEventListener('change', renderPriceResults);
 
