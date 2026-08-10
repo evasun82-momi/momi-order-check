@@ -64,8 +64,12 @@
   <div class="tab-panel active" id="tab-orders">
     <section class="card">
       <h2>訂單比對（以 LINE 為準）</h2>
-      <p class="section-note">按「店家 + 日期」彙總後比對品項數量。只比對已成功對照到鼎新品號/客戶的項目，未對照的請到「店家/品項對照」頁簽處理。</p>
+      <p class="section-note">以「一則LINE對話 = 一張鼎新單」配對比對。只比對已成功對照到鼎新品號/客戶的項目，未對照的請到「店家/品項對照」頁簽處理。</p>
       <div class="stat-row" id="orderStats"></div>
+      <div class="toolbar">
+        <input type="text" id="orderSearch" placeholder="搜尋店家、鼎新單號、LINE對話內容..." style="flex:1;min-width:240px">
+        <label><input type="checkbox" id="orderOnlyDiff"> 只顯示有差異</label>
+      </div>
       <div id="orderResults"><div class="empty-state">請先上傳檔案並按「開始比對」</div></div>
     </section>
   </div>

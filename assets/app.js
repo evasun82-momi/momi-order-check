@@ -320,8 +320,23 @@
       <div class="stat"><b>${state.pendingItems.size}</b>待對照品項</div>
     `;
     if (!state.orderCompare.length) { el.innerHTML = '<div class="empty-state">此區間沒有可比對的資料</div>'; return; }
+
+    const searchText = ($('orderSearch').value || '').trim().toLowerCase();
+    const onlyDiff = $('orderOnlyDiff').checked;
+    const rows = state.orderCompare.filter((g) => {
+      if (onlyDiff && !g.hasDiff) return false;
+      if (!searchText) return true;
+      const haystack = [
+        g.customer, g.date, g.orderNo, g.lineHeader,
+        ...(g.lineRawItems || []), ...(g.rows || []).map((r) => r.itemCode)
+      ].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(searchText);
+    });
+
+    if (!rows.length) { el.innerHTML = '<div class="empty-state">沒有符合搜尋條件的結果</div>'; return; }
+
     let html = '';
-    for (const g of state.orderCompare) {
+    for (const g of rows) {
       let badge = '<span class="badge badge-ok">一致</span>';
       if (g.unmatchedSide === 'line') badge = '<span class="badge badge-warn">⚠️ LINE有下單，鼎新找不到對應</span>';
       else if (g.unmatchedSide === 'dingxin') badge = '<span class="badge badge-warn">⚠️ 鼎新有單，LINE找不到對應對話</span>';
@@ -335,7 +350,15 @@
       ].filter(Boolean).join(' ｜ ');
       html += `<div class="order-block"><div class="block-header"><strong>${escapeHtml(g.customer)} - ${g.date}</strong>${badge}</div>`;
       if (meta) html += `<div class="section-note" style="margin-top:-6px">${escapeHtml(meta)}</div>`;
-      if (g.lineHeader) html += `<div class="section-note">原始訊息：${escapeHtml(g.lineHeader)}</div>`;
+
+      if (g.lineHeader || (g.lineRawItems && g.lineRawItems.length)) {
+        const bubbleLines = [];
+        if (g.lineHeader) bubbleLines.push(escapeHtml(g.lineHeader));
+        for (const raw of g.lineRawItems || []) bubbleLines.push(escapeHtml(raw));
+        for (const note of g.lineNotes || []) bubbleLines.push(escapeHtml(note));
+        html += `<div class="line-bubble">${bubbleLines.join('<br>')}</div>`;
+      }
+
       html += '<div class="block-body">' + tableHtml(
         ['品號', '品名', 'LINE數量', '鼎新數量', '差異'],
         g.rows.map((r) => [r.itemCode, productDisplayName(r.itemCode), r.lineQty, r.dxQty, r.diff]),
@@ -344,6 +367,8 @@
     }
     el.innerHTML = html;
   }
+  $('orderSearch').addEventListener('input', renderOrderResults);
+  $('orderOnlyDiff').addEventListener('change', renderOrderResults);
 
   // ---------- render: price comparison ----------
   function renderPriceResults() {

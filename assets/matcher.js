@@ -146,6 +146,7 @@ const Matcher = (() => {
         const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items);
         results.push({
           customer, date, lineTime: lineList[p.i].block.time, lineDate: lineList[p.i].block.date, lineHeader: lineList[p.i].block.rawHeader,
+          lineRawItems: lineList[p.i].block.items.map((it) => it.raw), lineNotes: lineList[p.i].block.notes,
           orderNo: dxList[p.j].orderNo, matched: true, ...diff
         });
       }
@@ -154,6 +155,7 @@ const Matcher = (() => {
         const diff = buildDiffRows(lineList[i].itemMap, new Map());
         results.push({
           customer, date, lineTime: lineList[i].block.time, lineDate: lineList[i].block.date, lineHeader: lineList[i].block.rawHeader,
+          lineRawItems: lineList[i].block.items.map((it) => it.raw), lineNotes: lineList[i].block.notes,
           orderNo: null, matched: false, unmatchedSide: 'line', ...diff, hasDiff: true
         });
       }
