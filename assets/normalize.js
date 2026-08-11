@@ -22,13 +22,19 @@ const Normalize = (() => {
   // 鼎新品名常寫成「摩米美國特級第二割提摩西草0.5公斤|500克|18oz」多種規格用 | 分隔，
   // 且常見「摩米營養全成兔T(5公斤裝)」這類「品牌+動物代號+型號字母+規格」寫法，
   // 但LINE只會簡寫成「成兔5kg」。這裡盡量去掉品牌贅字與型號字母，讓兩邊比對得起來。
-  const FILLER_WORDS = ['摩米', '美國', '特級', '提摩西草', '裝', '第', '營養全', '護極幼', '小食', '凍乾', '木質墊料', '木刨花', '天然純萃', '實驗室無塵'];
+  // 「木刨花」故意不放進來去除：那是LINE實際會用的關鍵字（如「小刨花」），
+  // 之前誤刪過導致美麗多刨花系列比對不到，這裡留著提醒不要再犯
+  const FILLER_WORDS = ['摩米', '美國', '特級', '提摩西草', '裝', '第', '營養全', '護極幼', '小食', '凍乾', '木質墊料', '天然純萃', '實驗室無塵', '卡莉寵物', '標準版'];
+  // 飲水機色號跟LINE簡寫的顏色字不一樣，直接做同義詞轉換
+  const COLOR_SYNONYMS = [['蘇菲白', '白'], ['蘇菲亞啡', '咖'], ['琳達绿', '綠'], ['琳達綠', '綠']];
   function normItemForMatch(rawS) {
     if (!rawS) return '';
     const s = rawS.replace(/㇐/g, '一'); // 表格裡混用了CJK筆畫字元㇐當作「一」，先統一
     let t = s.split('|')[0];
     t = t.replace(/[()（）]/g, '');
     for (const w of FILLER_WORDS) t = t.split(w).join('');
+    for (const [from, to] of COLOR_SYNONYMS) t = t.split(from).join(to);
+    t = t.replace(/[/\\\-－—_]/g, ''); // 分隔符號不影響語意，比對前先去掉
     // 「一割/二割」是關鍵字，若被 FILLER_WORDS 誤刪要補回：從原字串偵測
     const cut = /第?[一二]割/.exec(s);
     if (cut && !/[一二]割/.test(t)) t = cut[0].replace('第', '') + t;
