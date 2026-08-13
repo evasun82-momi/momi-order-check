@@ -72,7 +72,10 @@ const Matcher = (() => {
   // 兩邊品項的重疊分數：數量重疊越多分數越高，用來把「一則LINE對話」配對到「一張鼎新單」
   function overlapScore(lineMap, dxMap) {
     let score = 0;
-    for (const [code, qty] of lineMap) score += Math.min(qty, dxMap.get(code) || 0);
+    for (const [code, entry] of lineMap) {
+      const dxEntry = dxMap.get(code);
+      score += Math.min(entry.qty, dxEntry ? dxEntry.qty : 0);
+    }
     return score;
   }
 
@@ -87,33 +90,66 @@ const Matcher = (() => {
     });
   }
 
-  function buildDiffRows(lineMap, dxMap, stockouts, customer, dateStr) {
+  // LINE備註常見「送3,業務回饋」「0元,破包換貨不寫字」這種贈品/特殊價說明，
+  // 有這些字樣、且登打單價剛好是0，就當作有解釋、不是價格異常
+  const GIFT_NOTE_RE = /送|贈|回饋|不寫字|換貨|試吃|樣品/;
+
+  function buildDiffRows(lineMap, dxMap, stockouts, customer, dateStr, priceCtx) {
     const itemCodes = new Set([...lineMap.keys(), ...dxMap.keys()]);
     const rows = [];
     let hasDiff = false;
     for (const code of itemCodes) {
-      const lineQty = lineMap.get(code) || 0;
-      const dxQty = dxMap.get(code) || 0;
+      const lineEntry = lineMap.get(code);
+      const dxEntry = dxMap.get(code);
+      const lineQty = lineEntry ? lineEntry.qty : 0;
+      const dxQty = dxEntry ? dxEntry.qty : 0;
       const diff = dxQty - lineQty;
       const stockout = diff < 0 && isStockedOut(stockouts, code, customer, dateStr);
       if (diff !== 0 && !stockout) hasDiff = true;
-      rows.push({ itemCode: code, lineQty, dxQty, diff, stockout });
+
+      const lineNote = lineEntry && lineEntry.notes.length ? lineEntry.notes.join('，') : '';
+      const row = { itemCode: code, lineQty, dxQty, diff, stockout, lineNote };
+
+      if (priceCtx && dxEntry) {
+        const enteredPrice = dxEntry.qty ? Math.round((dxEntry.amount / dxEntry.qty) * 100) / 100 : dxEntry.unitPrice;
+        const cp = priceCtx.priceTable
+          ? priceCtx_correctPrice(priceCtx, customer, code, dateStr)
+          : { price: null, source: null, promo: null };
+        const isGiftNote = GIFT_NOTE_RE.test(lineNote);
+        let priceStatus = 'unknown';
+        if (isGiftNote && enteredPrice === 0) priceStatus = 'gift';
+        else if (cp.price != null) priceStatus = enteredPrice === cp.price ? 'ok' : 'diff';
+        row.enteredPrice = enteredPrice;
+        row.correctPrice = cp.price;
+        row.priceSource = cp.source;
+        row.promo = cp.promo;
+        row.priceStatus = priceStatus;
+      }
+      rows.push(row);
     }
     return { rows: rows.sort((a, b) => a.itemCode.localeCompare(b.itemCode)), hasDiff };
   }
 
+  function priceCtx_correctPrice(priceCtx, customer, itemCode, dateStr) {
+    return PriceTable.correctPrice(priceCtx.priceTable, priceCtx.promotions, customer, itemCode, dateStr, priceCtx.quoteMaster);
+  }
+
   // 「一則LINE對話 = 一張鼎新單」：同店同天可能有多則對話、多張單，
   // 用品項重疊分數做貪婪配對，而不是把整天全部加總在一起比對
-  function compareOrders(lineResolved, dingxinRows, dateFrom, dateTo, stockouts) {
+  function compareOrders(lineResolved, dingxinRows, dateFrom, dateTo, stockouts, priceCtx) {
     const inRange = (d) => (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo);
 
-    const dxOrders = new Map(); // customer|date|orderNo -> {customer,date,orderNo,items:Map}
+    const dxOrders = new Map(); // customer|date|orderNo -> {customer,date,orderNo,items:Map<code,{qty,amount,unitPrice}>}
     for (const row of dingxinRows) {
       if (!row.date || !inRange(row.date) || !row.itemCode) continue;
       const key = `${row.customer}|${row.date}|${row.orderNo}`;
       if (!dxOrders.has(key)) dxOrders.set(key, { customer: row.customer, date: row.date, orderNo: row.orderNo, items: new Map() });
       const o = dxOrders.get(key);
-      o.items.set(row.itemCode, (o.items.get(row.itemCode) || 0) + row.qty);
+      const entry = o.items.get(row.itemCode) || { qty: 0, amount: 0, unitPrice: row.unitPrice };
+      entry.qty += row.qty;
+      entry.amount += row.amount != null ? row.amount : row.qty * row.unitPrice;
+      entry.unitPrice = row.unitPrice;
+      o.items.set(row.itemCode, entry);
     }
     const dxByStoreDate = new Map(); // customer|date -> [order,...]
     for (const o of dxOrders.values()) {
@@ -126,10 +162,13 @@ const Matcher = (() => {
     for (const block of lineResolved) {
       const orderDate = effectiveOrderDate(block);
       if (!block.customer || !orderDate || !inRange(orderDate)) continue;
-      const itemMap = new Map();
+      const itemMap = new Map(); // code -> {qty, notes:[]}
       for (const it of block.items) {
         if (!it.itemCode) continue;
-        itemMap.set(it.itemCode, (itemMap.get(it.itemCode) || 0) + it.qty);
+        const entry = itemMap.get(it.itemCode) || { qty: 0, notes: [] };
+        entry.qty += it.qty;
+        if (it.note) entry.notes.push(it.note);
+        itemMap.set(it.itemCode, entry);
       }
       if (!itemMap.size) continue;
       const k = `${block.customer}|${orderDate}`;
@@ -156,7 +195,7 @@ const Matcher = (() => {
       for (const p of pairs) {
         if (usedLine.has(p.i) || usedDx.has(p.j)) continue;
         usedLine.add(p.i); usedDx.add(p.j);
-        const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items, stockouts, customer, date);
+        const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items, stockouts, customer, date, priceCtx);
         results.push({
           customer, date, lineTime: lineList[p.i].block.time, lineDate: lineList[p.i].block.date, lineHeader: lineList[p.i].block.rawHeader,
           lineRawItems: lineList[p.i].block.items.map((it) => it.raw), lineNotes: lineList[p.i].block.notes,
@@ -165,7 +204,7 @@ const Matcher = (() => {
       }
       for (let i = 0; i < lineList.length; i++) {
         if (usedLine.has(i)) continue;
-        const diff = buildDiffRows(lineList[i].itemMap, new Map(), stockouts, customer, date);
+        const diff = buildDiffRows(lineList[i].itemMap, new Map(), stockouts, customer, date, priceCtx);
         results.push({
           customer, date, lineTime: lineList[i].block.time, lineDate: lineList[i].block.date, lineHeader: lineList[i].block.rawHeader,
           lineRawItems: lineList[i].block.items.map((it) => it.raw), lineNotes: lineList[i].block.notes,
@@ -174,7 +213,7 @@ const Matcher = (() => {
       }
       for (let j = 0; j < dxList.length; j++) {
         if (usedDx.has(j)) continue;
-        const diff = buildDiffRows(new Map(), dxList[j].items);
+        const diff = buildDiffRows(new Map(), dxList[j].items, stockouts, customer, date, priceCtx);
         results.push({
           customer, date, lineTime: null, lineHeader: null,
           orderNo: dxList[j].orderNo, matched: false, unmatchedSide: 'dingxin', ...diff, hasDiff: true

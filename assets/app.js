@@ -227,7 +227,8 @@
 
     const dateFrom = $('dateFrom').value || null;
     const dateTo = $('dateTo').value || null;
-    state.orderCompare = Matcher.compareOrders(resolved, state.dingxinRows, dateFrom, dateTo, state.config.stockouts);
+    const priceCtx = { priceTable: state.priceTable, promotions: state.config.promotions, quoteMaster: state.quoteMaster };
+    state.orderCompare = Matcher.compareOrders(resolved, state.dingxinRows, dateFrom, dateTo, state.config.stockouts, priceCtx);
     state.priceCompare = computePriceCompare(dateFrom, dateTo);
 
     $('statusRun').textContent = '比對完成';
@@ -343,9 +344,11 @@
     const diffCount = state.orderCompare.filter((g) => g.hasDiff).length;
     const unmatchedLineCount = state.orderCompare.filter((g) => g.unmatchedSide === 'line').length;
     const unmatchedDxCount = state.orderCompare.filter((g) => g.unmatchedSide === 'dingxin').length;
+    const priceDiffCount = state.orderCompare.filter((g) => (g.rows || []).some((r) => r.priceStatus === 'diff')).length;
     $('orderStats').innerHTML = `
       <div class="stat"><b>${state.orderCompare.length}</b>則對話/訂單</div>
-      <div class="stat"><b>${diffCount}</b>有差異</div>
+      <div class="stat"><b>${diffCount}</b>數量有差異</div>
+      <div class="stat"><b>${priceDiffCount}</b>價格有異常</div>
       <div class="stat"><b>${unmatchedLineCount}</b>LINE有下單但鼎新找不到對應</div>
       <div class="stat"><b>${unmatchedDxCount}</b>鼎新有單但LINE找不到對應對話</div>
       <div class="stat"><b>${state.pendingStores.size}</b>待對照店家</div>
@@ -398,8 +401,10 @@
 
   // 左右對照表：品名用鼎新中文名，不同的一格用顏色標出來（而不是只標整列）
   function compareTableHtml(rows) {
+    const hasPrice = rows.some((r) => r.priceStatus !== undefined);
     let html = '<table class="compare-table"><thead><tr>' +
-      '<th>品名</th><th class="col-a">LINE數量</th><th class="col-b">鼎新數量</th><th>差異</th>' +
+      '<th>品名</th><th class="col-a">LINE數量</th><th class="col-b">鼎新數量</th><th>數量差異</th>' +
+      (hasPrice ? '<th class="col-a">登打單價</th><th class="col-b">正確價格</th><th>價格狀態</th><th>LINE備註</th>' : '') +
       '</tr></thead><tbody>';
     for (const r of rows) {
       const mismatch = r.diff !== 0 && !r.stockout;
@@ -408,8 +413,21 @@
         <td>${escapeHtml(productDisplayName(r.itemCode))}</td>
         <td class="col-a ${cell}">${escapeHtml(r.lineQty)}</td>
         <td class="col-b ${cell}">${escapeHtml(r.dxQty)}</td>
-        <td class="${cell}">${r.stockout ? '<span class="badge badge-warn">缺貨</span>' : escapeHtml(r.diff)}</td>
-      </tr>`;
+        <td class="${cell}">${r.stockout ? '<span class="badge badge-warn">缺貨</span>' : escapeHtml(r.diff)}</td>`;
+      if (hasPrice) {
+        const priceMismatch = r.priceStatus === 'diff';
+        const priceCell = priceMismatch ? 'cell-diff' : (r.priceStatus === 'gift' ? 'cell-stockout' : '');
+        let statusBadge = '<span class="badge badge-muted">查無資料</span>';
+        if (r.priceStatus === 'ok') statusBadge = '<span class="badge badge-ok">正常</span>';
+        else if (r.priceStatus === 'diff') statusBadge = '<span class="badge badge-diff">異常</span>';
+        else if (r.priceStatus === 'gift') statusBadge = '<span class="badge badge-warn">贈品/特殊</span>';
+        html += `
+        <td class="col-a ${priceCell}">${r.enteredPrice != null ? escapeHtml(r.enteredPrice) : '-'}</td>
+        <td class="col-b ${priceCell}">${r.correctPrice != null ? escapeHtml(r.correctPrice) : '-'}</td>
+        <td>${statusBadge}</td>
+        <td class="suggestion">${escapeHtml(r.lineNote || '')}</td>`;
+      }
+      html += '</tr>';
     }
     html += '</tbody></table>';
     return html;

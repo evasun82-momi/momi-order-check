@@ -76,7 +76,7 @@ const LineParser = (() => {
     // 帳期/出貨備註（如「下月帳」「7月帳」「親送」「業務自送」）不是店名的一部分，
     // 但要留下來當備註，不能直接丟掉
     const noteTokens = [];
-    s = s.replace(/(下月帳|[0-9]{1,2}月帳|親送自取|業務自送|已取|跨月出)/g, (m) => { noteTokens.push(m); return ' '; });
+    s = s.replace(/(下月帳|[0-9]{1,2}月帳|親送自取|業務自送|已取|跨月出|隨貨附發票|兩張單|[一-鿿]{2,5}優惠)/g, (m) => { noteTokens.push(m); return ' '; });
     // 清掉常見連接符號/贅字
     s = s.replace(/[｜|・.,，、\-]+/g, ' ');
     s = normSpace(s);
