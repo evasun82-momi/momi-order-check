@@ -77,6 +77,9 @@ const LineParser = (() => {
     // 但要留下來當備註，不能直接丟掉
     const noteTokens = [];
     s = s.replace(/(下月帳|[0-9]{1,2}月帳|親送自取|業務自送|已取|跨月出|隨貨附發票|兩張單|[一-鿿]{2,5}優惠|附單|附截圖|附上?退單)/g, (m) => { noteTokens.push(m); return ' '; });
+    // 「寄XX」「一起寄到XX」是出貨合併備註（例如「日升社皮 寄豐勢」代表社皮的單跟豐勢一起出），
+    // 不是店名的一部分，要拆出來當備註，不然店名會黏成「日升社皮寄豐勢」對照不到
+    s = s.replace(/(一起寄到[^\s,，、]{1,8}|寄到[^\s,，、]{1,8}|寄[^\s,，、]{1,8})/g, (m) => { noteTokens.push(m); return ' '; });
     // 清掉常見連接符號/贅字
     s = s.replace(/[｜|・.,，、\-]+/g, ' ');
     s = normSpace(s);
@@ -172,10 +175,16 @@ const LineParser = (() => {
     let currentBlock = null;
     let internalMode = false;
 
-    function nextDayStr(dateStr) {
-      const d = new Date(dateStr + 'T00:00:00');
-      d.setDate(d.getDate() + 1);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    // 截止線之後、還沒等到下一條線或新日期行收尾之前的區塊，用「線上寫的月/日」當暫定日期
+    // （這條線本身就是在宣告接下來這批單是哪一天的單，跟「線之前」用日曆日期蓋日期是不同情境）
+    function markerDateStr(marker, refDateStr) {
+      let year = refDateStr ? Number(refDateStr.slice(0, 4)) : new Date().getFullYear();
+      if (refDateStr) {
+        const refMonth = Number(refDateStr.slice(5, 7));
+        if (marker.month < refMonth - 6) year += 1; // 跨年，例如目前12月、線寫1月
+        else if (marker.month > refMonth + 6) year -= 1;
+      }
+      return `${year}-${String(marker.month).padStart(2, '0')}-${String(marker.day).padStart(2, '0')}`;
     }
 
     function pushBlock() {
@@ -213,9 +222,8 @@ const LineParser = (() => {
             blocks.push(b);
           }
           pendingBlocks = [];
-          // 這條線之後、還沒等到下一條線或新日期行收尾之前，先假設是「隔天」的單
-          // （例如訊息實際送出時日曆行還沒跳日期，但線已經在講下一個工作日了）
-          pendingDateHint = currentDate ? nextDayStr(currentDate) : null;
+          // 這條線之後、還沒等到下一條線或新日期行收尾之前，用線上寫的日期當暫定日期
+          pendingDateHint = markerDateStr(header.cutoffMarker, currentDate);
           currentBlock = null;
           continue;
         }
