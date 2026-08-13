@@ -168,8 +168,15 @@ const LineParser = (() => {
     const blocks = [];
     let pendingBlocks = []; // 還沒遇到截止線的區塊，遇到線之後回頭蓋上那條線寫的日期
     let currentDate = null;
+    let pendingDateHint = null; // 截止線之後、還沒等到新日期行時的暫定日期（線出現當下日期的隔天）
     let currentBlock = null;
     let internalMode = false;
+
+    function nextDayStr(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      d.setDate(d.getDate() + 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
 
     function pushBlock() {
       if (currentBlock && currentBlock.items.length > 0) pendingBlocks.push(currentBlock);
@@ -186,6 +193,7 @@ const LineParser = (() => {
       if (dm) {
         pushBlock();
         currentDate = `${dm[1]}-${dm[2]}-${dm[3]}`;
+        pendingDateHint = null; // 有真正的日期行了，不用再猜
         continue;
       }
 
@@ -205,6 +213,9 @@ const LineParser = (() => {
             blocks.push(b);
           }
           pendingBlocks = [];
+          // 這條線之後、還沒等到下一條線或新日期行收尾之前，先假設是「隔天」的單
+          // （例如訊息實際送出時日曆行還沒跳日期，但線已經在講下一個工作日了）
+          pendingDateHint = currentDate ? nextDayStr(currentDate) : null;
           currentBlock = null;
           continue;
         }
@@ -216,7 +227,7 @@ const LineParser = (() => {
           id: `${currentDate || 'unknown'}_${header.time}_${blocks.length + pendingBlocks.length}`,
           date: currentDate,
           time: header.time,
-          businessDateOverride: null,
+          businessDateOverride: pendingDateHint,
           storeNameRaw: header.storeNameRaw,
           orderRefs: header.orderRefs,
           rawHeader: header.raw,
