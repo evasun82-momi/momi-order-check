@@ -136,12 +136,15 @@ const LineParser = (() => {
     }
     if (!main) return { type: 'note', raw };
 
-    // 優先找明確分隔符 (* × x X) + 尾端數字
+    // 優先找明確分隔符 (* × x X) + 數量。分隔符後面如果還有字（例如「大顆粒10Lx16 送3」的
+    // 「送3」是贈品備註，不是主要數量），要併進備註，不能被誤判成主要數量。
     let name, qty;
-    const sepMatch = /^(.*?)[\s]*[\*×xX][\s]*([0-9]+(?:\.[0-9]+)?)\s*$/.exec(main);
+    const sepMatch = /^(.*?)[\s]*[\*×xX][\s]*([0-9]+(?:\.[0-9]+)?)(.*)$/.exec(main);
     if (sepMatch && sepMatch[1].trim()) {
       name = sepMatch[1].trim();
       qty = parseFloat(sepMatch[2]);
+      const trailing = sepMatch[3].trim();
+      if (trailing) note = note ? `${trailing}，${note}` : trailing;
     } else {
       // 找字串裡最後一個數字當作數量
       const lastNumMatch = /^(.*?)([0-9]+(?:\.[0-9]+)?)([^\d]*)$/.exec(main);

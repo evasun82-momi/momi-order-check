@@ -16,6 +16,8 @@ const Normalize = (() => {
     let t = s.replace(/\s+/g, '').toUpperCase();
     t = t.replace(/公斤/g, 'KG').replace(/公克|克/g, 'G').replace(/公升/g, 'L');
     t = t.replace(/KGS?\b/g, 'KG');
+    // 打字連續重複的中文字視為手誤，例如「提摩西草草磚」→「提摩西草磚」
+    t = t.replace(/([一-鿿])\1+/g, '$1');
     return t;
   }
 
