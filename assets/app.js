@@ -403,7 +403,7 @@
   function compareTableHtml(rows) {
     const hasPrice = rows.some((r) => r.priceStatus !== undefined);
     let html = '<table class="compare-table"><thead><tr>' +
-      '<th>品名</th><th class="col-a">LINE數量</th><th class="col-b">鼎新數量</th><th>數量差異</th>' +
+      '<th class="col-a">LINE寫的品名</th><th class="col-b">鼎新品名</th><th class="col-a">LINE數量</th><th class="col-b">鼎新數量</th><th>數量差異</th>' +
       (hasPrice ? '<th class="col-a">登打單價</th><th class="col-b">正確價格</th><th>價格狀態</th><th>LINE備註</th>' : '') +
       '</tr></thead><tbody>';
     for (const r of rows) {
@@ -414,20 +414,21 @@
       if (r.stockout) diffCell = '<span class="badge badge-warn">缺貨</span>';
       else if (r.selfUseAbsorbed) diffCell = `<span class="badge badge-warn">活體/自用 +${r.selfUseAbsorbed}</span>` + (netDiff !== 0 ? ` ${escapeHtml(netDiff)}` : '');
       html += `<tr>
-        <td>${escapeHtml(productDisplayName(r.itemCode))}</td>
+        <td class="col-a">${escapeHtml(r.lineName || '-')}</td>
+        <td class="col-b">${escapeHtml(productDisplayName(r.itemCode))}</td>
         <td class="col-a ${cell}">${escapeHtml(r.lineQty)}</td>
         <td class="col-b ${cell}">${escapeHtml(r.dxQty)}</td>
         <td class="${cell}">${diffCell}</td>`;
       if (hasPrice) {
         const priceMismatch = r.priceStatus === 'diff';
-        const priceCell = priceMismatch ? 'cell-diff' : (r.priceStatus === 'gift' ? 'cell-stockout' : '');
+        const priceCell = priceMismatch ? 'cell-diff' : ((r.priceStatus === 'gift') ? 'cell-stockout' : '');
         let statusBadge = '<span class="badge badge-muted">查無資料</span>';
         if (r.priceStatus === 'ok') statusBadge = '<span class="badge badge-ok">正常</span>';
         else if (r.priceStatus === 'diff') statusBadge = '<span class="badge badge-diff">異常</span>';
         else if (r.priceStatus === 'gift') statusBadge = '<span class="badge badge-warn">贈品/特殊</span>';
         // 每個品項可能分好幾行登打不同單價（例如一行正常價、一行贈品0元），逐行顯示，不合併算平均
         const enteredCell = (r.priceLines || []).map((l) => {
-          const tag = l.status === 'diff' ? '(異常)' : (l.status === 'gift' ? '(贈品)' : '');
+          const tag = l.status === 'diff' ? '(異常)' : (l.status === 'gift' ? '(贈品)' : (l.status === 'selfuse' ? '(活體/自用)' : ''));
           return `${l.unitPrice}×${l.qty}${tag}`;
         }).join('、') || '-';
         html += `

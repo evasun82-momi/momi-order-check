@@ -94,7 +94,26 @@ const Matcher = (() => {
   // 有這些字樣、且登打單價剛好是0，就當作有解釋、不是價格異常
   const GIFT_NOTE_RE = /送|贈|回饋|不寫字|換貨|試吃|樣品/;
 
-  function buildDiffRows(lineMap, dxMap, stockouts, customer, dateStr, priceCtx, selfUseBudget) {
+  // 「自用木屑」「活體幼兔」這類品項會併入同類品項的數量裡，不能併到不相關的品項
+  const SELF_USE_CATEGORY_CODES = {
+    '木屑': ['MLMP0.7', 'MLMP2', 'MLMP4', 'MLMP10', 'MLMS0.7', 'MLMS2', 'MLMS10', 'MMC5', 'MMCP5', 'MLMN005', 'MMR10L'],
+    '木粒': ['MLMP0.7', 'MLMP2', 'MLMP4', 'MLMP10', 'MLMS0.7', 'MLMS2', 'MLMS10', 'MMC5', 'MMCP5', 'MLMN005', 'MMR10L'],
+    '墊料': ['MLMP0.7', 'MLMP2', 'MLMP4', 'MLMP10', 'MLMS0.7', 'MLMS2', 'MLMS10'],
+    '刨花': ['MMC5', 'MMCP5'],
+    '木絲': ['MLMN005'],
+    '木梗': ['MMR10L'],
+    '苜蓿': ['ALFA1', 'ALC1'],
+    '幼兔': ['TIMCA1', 'TIMCA5'],
+    '成兔': ['TIMCT1', 'TIMCT5'],
+    '老兔': ['TIMIC1', 'TIMIC5'],
+    '天竺鼠': ['TIMCG1', 'TIMCG5']
+  };
+  function selfUseCategoryCodes(keyword) {
+    const key = Object.keys(SELF_USE_CATEGORY_CODES).find((k) => keyword.includes(k));
+    return key ? SELF_USE_CATEGORY_CODES[key] : null;
+  }
+
+  function buildDiffRows(lineMap, dxMap, stockouts, customer, dateStr, priceCtx, selfUseItems) {
     const itemCodes = new Set([...lineMap.keys(), ...dxMap.keys()]);
     const rows = [];
     for (const code of itemCodes) {
@@ -104,20 +123,48 @@ const Matcher = (() => {
       const dxQty = dxEntry ? dxEntry.qty : 0;
       const diff = dxQty - lineQty;
       const stockout = diff < 0 && isStockedOut(stockouts, code, customer, dateStr);
-
       const lineNote = lineEntry && lineEntry.notes.length ? lineEntry.notes.join('，') : '';
-      const row = { itemCode: code, lineQty, dxQty, diff, stockout, lineNote };
+      const lineName = lineEntry && lineEntry.lineNames.length ? lineEntry.lineNames.join('、') : '';
+      rows.push({ itemCode: code, lineQty, dxQty, diff, stockout, lineNote, lineName, dxEntry });
+    }
+    rows.sort((a, b) => a.itemCode.localeCompare(b.itemCode));
+
+    // 自用/活體品項（如「自用木屑」）鼎新登打時會直接併進「同類」品項的數量裡、標0元贈品，
+    // 不會有自己的品號。用「同一則對話裡未對照到的自用/活體品項」當額度，
+    // 只去抵掉同類品項多出來的鼎新數量，不能亂併到不相關的品項
+    const budgets = new Map(); // keyword -> 剩餘數量
+    for (const s of selfUseItems || []) budgets.set(s.keyword, (budgets.get(s.keyword) || 0) + s.qty);
+    for (const row of rows) {
+      if (!(row.diff > 0 && !row.stockout)) continue;
+      for (const [keyword, remaining] of budgets) {
+        if (remaining <= 0) continue;
+        const codes = selfUseCategoryCodes(keyword);
+        if (!codes || !codes.includes(row.itemCode)) continue;
+        const absorb = Math.min(row.diff - (row.selfUseAbsorbed || 0), remaining);
+        if (absorb <= 0) continue;
+        row.selfUseAbsorbed = (row.selfUseAbsorbed || 0) + absorb;
+        budgets.set(keyword, remaining - absorb);
+      }
+    }
+
+    let hasDiff = false;
+    for (const row of rows) {
+      const { dxEntry } = row;
+      const netDiff = row.diff - (row.selfUseAbsorbed || 0);
+      if (netDiff !== 0 && !row.stockout) hasDiff = true;
 
       if (priceCtx && dxEntry) {
         // 鼎新同一品項常常分成好幾行登打（例如一行正常價、一行贈品0元），
         // 不能把它們混在一起算平均單價，要逐行各自跟正確價格比對
         const cp = priceCtx.priceTable
-          ? priceCtx_correctPrice(priceCtx, customer, code, dateStr)
+          ? priceCtx_correctPrice(priceCtx, customer, row.itemCode, dateStr)
           : { price: null, source: null, promo: null };
-        const isGiftNote = GIFT_NOTE_RE.test(lineNote);
+        const isGiftNote = GIFT_NOTE_RE.test(row.lineNote);
+        let selfUseLeft = row.selfUseAbsorbed || 0;
         const priceLines = (dxEntry.lines || []).map((l) => {
           let status = 'unknown';
-          if (isGiftNote && l.unitPrice === 0) status = 'gift';
+          if (l.unitPrice === 0 && selfUseLeft > 0) { status = 'selfuse'; selfUseLeft -= l.qty; }
+          else if (isGiftNote && l.unitPrice === 0) status = 'gift';
           else if (cp.price != null) status = l.unitPrice === cp.price ? 'ok' : 'diff';
           return { qty: l.qty, unitPrice: l.unitPrice, status };
         });
@@ -126,30 +173,10 @@ const Matcher = (() => {
         row.priceSource = cp.source;
         row.promo = cp.promo;
         row.priceStatus = priceLines.some((l) => l.status === 'diff') ? 'diff'
-          : priceLines.some((l) => l.status === 'gift') ? 'gift'
+          : priceLines.some((l) => l.status === 'gift' || l.status === 'selfuse') ? 'gift'
           : priceLines.every((l) => l.status === 'ok') ? 'ok' : 'unknown';
       }
-      rows.push(row);
-    }
-    rows.sort((a, b) => a.itemCode.localeCompare(b.itemCode));
-
-    // 自用/活體品項（如「自用木屑」）鼎新登打時會直接併進同類品項的數量裡、標贈品備註活體，
-    // 不會有自己的品號。用「同一則對話裡未對照到的自用/活體總量」當額度，
-    // 去抵掉品項多出來的鼎新數量，避免被誤判成差異
-    let budget = selfUseBudget || 0;
-    if (budget > 0) {
-      for (const row of rows) {
-        if (row.diff > 0 && !row.stockout && budget > 0) {
-          const absorb = Math.min(row.diff, budget);
-          row.selfUseAbsorbed = absorb;
-          budget -= absorb;
-        }
-      }
-    }
-    let hasDiff = false;
-    for (const row of rows) {
-      const netDiff = row.diff - (row.selfUseAbsorbed || 0);
-      if (netDiff !== 0 && !row.stockout) hasDiff = true;
+      delete row.dxEntry;
     }
     return { rows, hasDiff };
   }
@@ -187,22 +214,24 @@ const Matcher = (() => {
       const orderDate = effectiveOrderDate(block);
       if (!block.customer || !orderDate || !inRange(orderDate)) continue;
       const itemMap = new Map(); // code -> {qty, notes:[]}
-      let selfUseQty = 0;
+      const selfUseItems = []; // [{keyword, qty}]，keyword用來限制只能併進同類品項
       for (const it of block.items) {
         if (!it.itemCode) {
-          // 「自用木屑」「活體苜蓿」這類品項鼎新不會另開品號，會併進同天其他品項的數量裡
-          if (/^(自用|活體)/.test(it.name)) selfUseQty += it.qty;
+          // 「自用木屑」「活體苜蓿」這類品項鼎新不會另開品號，會併進同類品項的數量裡（標贈品）
+          const m = /^(?:自用|活體){1,2}(.+)$/.exec(it.name);
+          if (m) selfUseItems.push({ keyword: m[1], qty: it.qty });
           continue;
         }
-        const entry = itemMap.get(it.itemCode) || { qty: 0, notes: [] };
+        const entry = itemMap.get(it.itemCode) || { qty: 0, notes: [], lineNames: [] };
         entry.qty += it.qty;
         if (it.note) entry.notes.push(it.note);
+        if (!entry.lineNames.includes(it.name)) entry.lineNames.push(it.name);
         itemMap.set(it.itemCode, entry);
       }
-      if (!itemMap.size && !selfUseQty) continue;
+      if (!itemMap.size && !selfUseItems.length) continue;
       const k = `${block.customer}|${orderDate}`;
       if (!lineByStoreDate.has(k)) lineByStoreDate.set(k, []);
-      lineByStoreDate.get(k).push({ block, itemMap, effectiveDate: orderDate, selfUseQty });
+      lineByStoreDate.get(k).push({ block, itemMap, effectiveDate: orderDate, selfUseItems });
     }
 
     const allKeys = new Set([...dxByStoreDate.keys(), ...lineByStoreDate.keys()]);
@@ -224,7 +253,7 @@ const Matcher = (() => {
       for (const p of pairs) {
         if (usedLine.has(p.i) || usedDx.has(p.j)) continue;
         usedLine.add(p.i); usedDx.add(p.j);
-        const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items, stockouts, customer, date, priceCtx, lineList[p.i].selfUseQty);
+        const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items, stockouts, customer, date, priceCtx, lineList[p.i].selfUseItems);
         results.push({
           customer, date, lineTime: lineList[p.i].block.time, lineDate: lineList[p.i].block.date, lineHeader: lineList[p.i].block.rawHeader,
           lineRawItems: lineList[p.i].block.items.map((it) => it.raw), lineNotes: lineList[p.i].block.notes,
@@ -233,7 +262,7 @@ const Matcher = (() => {
       }
       for (let i = 0; i < lineList.length; i++) {
         if (usedLine.has(i)) continue;
-        const diff = buildDiffRows(lineList[i].itemMap, new Map(), stockouts, customer, date, priceCtx, lineList[i].selfUseQty);
+        const diff = buildDiffRows(lineList[i].itemMap, new Map(), stockouts, customer, date, priceCtx, lineList[i].selfUseItems);
         results.push({
           customer, date, lineTime: lineList[i].block.time, lineDate: lineList[i].block.date, lineHeader: lineList[i].block.rawHeader,
           lineRawItems: lineList[i].block.items.map((it) => it.raw), lineNotes: lineList[i].block.notes,
