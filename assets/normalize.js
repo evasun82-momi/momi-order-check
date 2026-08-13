@@ -3,9 +3,13 @@
 const Normalize = (() => {
   // 分店常用「永1/永一」「板2/板二」這種阿拉伯數字/中文數字混用，統一轉中文數字再比對
   const STORE_NUM_MAP = { '1': '一', '2': '二', '3': '三', '4': '四', '5': '五' };
+  // LINE跟鼎新對同一個品牌會用不同字，例如「咕咕雞」在鼎新叫「咕咕G」
+  const STORE_BRAND_SYNONYMS = [[/咕咕雞/g, '咕咕G']];
   function normStore(s) {
     if (!s) return '';
-    return s
+    let t = s;
+    for (const [from, to] of STORE_BRAND_SYNONYMS) t = t.replace(from, to);
+    return t
       .replace(/[1-5]/g, (d) => STORE_NUM_MAP[d])
       .replace(/\s+/g, '')
       .replace(/[-－—_]/g, '')

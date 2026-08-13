@@ -407,13 +407,17 @@
       (hasPrice ? '<th class="col-a">登打單價</th><th class="col-b">正確價格</th><th>價格狀態</th><th>LINE備註</th>' : '') +
       '</tr></thead><tbody>';
     for (const r of rows) {
-      const mismatch = r.diff !== 0 && !r.stockout;
-      const cell = mismatch ? 'cell-diff' : (r.stockout ? 'cell-stockout' : '');
+      const netDiff = r.diff - (r.selfUseAbsorbed || 0);
+      const mismatch = netDiff !== 0 && !r.stockout;
+      const cell = mismatch ? 'cell-diff' : (r.stockout || r.selfUseAbsorbed ? 'cell-stockout' : '');
+      let diffCell = escapeHtml(r.diff);
+      if (r.stockout) diffCell = '<span class="badge badge-warn">缺貨</span>';
+      else if (r.selfUseAbsorbed) diffCell = `<span class="badge badge-warn">活體/自用 +${r.selfUseAbsorbed}</span>` + (netDiff !== 0 ? ` ${escapeHtml(netDiff)}` : '');
       html += `<tr>
         <td>${escapeHtml(productDisplayName(r.itemCode))}</td>
         <td class="col-a ${cell}">${escapeHtml(r.lineQty)}</td>
         <td class="col-b ${cell}">${escapeHtml(r.dxQty)}</td>
-        <td class="${cell}">${r.stockout ? '<span class="badge badge-warn">缺貨</span>' : escapeHtml(r.diff)}</td>`;
+        <td class="${cell}">${diffCell}</td>`;
       if (hasPrice) {
         const priceMismatch = r.priceStatus === 'diff';
         const priceCell = priceMismatch ? 'cell-diff' : (r.priceStatus === 'gift' ? 'cell-stockout' : '');
@@ -421,8 +425,13 @@
         if (r.priceStatus === 'ok') statusBadge = '<span class="badge badge-ok">正常</span>';
         else if (r.priceStatus === 'diff') statusBadge = '<span class="badge badge-diff">異常</span>';
         else if (r.priceStatus === 'gift') statusBadge = '<span class="badge badge-warn">贈品/特殊</span>';
+        // 每個品項可能分好幾行登打不同單價（例如一行正常價、一行贈品0元），逐行顯示，不合併算平均
+        const enteredCell = (r.priceLines || []).map((l) => {
+          const tag = l.status === 'diff' ? '(異常)' : (l.status === 'gift' ? '(贈品)' : '');
+          return `${l.unitPrice}×${l.qty}${tag}`;
+        }).join('、') || '-';
         html += `
-        <td class="col-a ${priceCell}">${r.enteredPrice != null ? escapeHtml(r.enteredPrice) : '-'}</td>
+        <td class="col-a ${priceCell}">${enteredCell}</td>
         <td class="col-b ${priceCell}">${r.correctPrice != null ? escapeHtml(r.correctPrice) : '-'}</td>
         <td>${statusBadge}</td>
         <td class="suggestion">${escapeHtml(r.lineNote || '')}</td>`;
