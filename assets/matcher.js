@@ -8,9 +8,10 @@ const Matcher = (() => {
     for (const c of dingxinCustomers) {
       if (Normalize.normStore(c) === norm) return { customer: c, matchType: 'exact' };
     }
-    // 模糊比對，僅作建議，不自動採用
+    // 模糊比對，僅作建議、一定要人工在「店家/品項對照」頁簽點選確認才會生效，不自動採用，
+    // 所以門檻可以放寬到接近一半，讓更多候選被列出來給你選，而不會有靜默配對錯的風險
     const candidates = dingxinCustomers.map((c) => ({ key: Normalize.normStore(c), value: c }));
-    const best = Normalize.bestMatch(norm, candidates, 0.55);
+    const best = Normalize.bestMatch(norm, candidates, 0.5);
     if (best) return { customer: null, suggestion: best.value, score: best.score, matchType: 'suggest' };
     return { customer: null, matchType: 'none' };
   }
@@ -24,7 +25,7 @@ const Matcher = (() => {
       candidates.push({ key: Normalize.normItemForMatch(name), value: code, name });
       candidates.push({ key: Normalize.normItem(code), value: code, name });
     }
-    const best = Normalize.bestMatch(matchKey, candidates, 0.55);
+    const best = Normalize.bestMatch(matchKey, candidates, 0.5);
     if (best) {
       const warnSize = Normalize.sizeMismatch(itemNameRaw, best.name);
       return { itemCode: null, suggestion: best.value, suggestionName: best.name, score: best.score, sizeWarning: warnSize, matchType: 'suggest' };
