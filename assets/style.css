@@ -89,6 +89,7 @@ tr.row-warn { background: var(--warn-bg); }
 .compare-table th.col-b { background: rgba(37,99,235,0.12); }
 .compare-table td.col-a { border-right: 1px dashed var(--border); }
 .compare-table td.cell-diff { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
+.compare-table td.cell-stockout { background: var(--warn-bg); color: var(--warn); }
 .line-bubble {
   background: #95ec69; color: #1a1a1a; border-radius: 10px; padding: 10px 14px; margin: 6px 0 10px;
   font-size: 13px; line-height: 1.6; max-width: 480px; white-space: normal; word-break: break-word;

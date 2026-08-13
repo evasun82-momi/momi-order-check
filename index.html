@@ -1,7 +1,7 @@
 <meta charset="UTF-8">
 <title>摩米訂單/價格比對工具</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="assets/style.css?v=20260810d">
+<link rel="stylesheet" href="assets/style.css?v=20260810f">
 
 <header class="app-header">
   <h1>摩米 LINE 訂單 × 鼎新銷貨 比對工具</h1>
@@ -41,6 +41,12 @@
         <div class="upload-status" id="statusQuote"></div>
         <button type="button" class="secondary ref-clear-btn" id="btnClearQuote" style="display:none">清除已記住的檔案</button>
       </div>
+      <div class="upload-item">
+        <label>商品主檔／多倉庫存表（.xlsx，選填，品項最完整，用來顯示正確中文品名，會記住上次上傳）</label>
+        <input type="file" id="fileStockMaster" accept=".xlsx,.xls">
+        <div class="upload-status" id="statusStockMaster"></div>
+        <button type="button" class="secondary ref-clear-btn" id="btnClearStockMaster" style="display:none">清除已記住的檔案</button>
+      </div>
     </div>
     <div class="toolbar">
       <label>比對日期範圍</label>
@@ -58,6 +64,7 @@
     <button class="tab-btn" data-tab="alias">店家/品項對照</button>
     <button class="tab-btn" data-tab="exclude">排除名單</button>
     <button class="tab-btn" data-tab="promo">檔期促銷設定</button>
+    <button class="tab-btn" data-tab="stock">缺貨品項設定</button>
     <button class="tab-btn" data-tab="help">說明</button>
   </div>
 
@@ -150,6 +157,22 @@
     </section>
   </div>
 
+  <div class="tab-panel" id="tab-stock">
+    <section class="card">
+      <h2>缺貨品項設定</h2>
+      <p class="section-note">庫存表沒有實際數量，缺貨要自己設定。設定後，「訂單比對」裡如果 LINE 有訂、鼎新沒登打的品項剛好落在缺貨區間內，會標示「缺貨」而不是當成差異／漏key。可以指定單一店家，或留白代表全部店家都缺貨。</p>
+      <div class="form-row">
+        <select id="stockItem"></select>
+        <select id="stockStore"><option value="">全部店家</option></select>
+        <input type="date" id="stockStart" placeholder="開始日">
+        <input type="date" id="stockEnd" placeholder="結束日（留白代表尚未恢復供貨）">
+        <input type="text" id="stockNote" placeholder="備註（選填）">
+        <button id="btnAddStock">新增缺貨設定</button>
+      </div>
+      <div id="stockTable"></div>
+    </section>
+  </div>
+
   <div class="tab-panel" id="tab-help">
     <section class="card">
       <h2>使用說明</h2>
@@ -169,13 +192,14 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="assets/normalize.js?v=20260810d"></script>
-<script src="assets/lineParser.js?v=20260810d"></script>
-<script src="assets/dingxinParser.js?v=20260810d"></script>
-<script src="assets/customerParser.js?v=20260810d"></script>
-<script src="assets/quoteParser.js?v=20260810d"></script>
-<script src="assets/priceTable.js?v=20260810d"></script>
-<script src="assets/matcher.js?v=20260810d"></script>
-<script src="assets/refStorage.js?v=20260810d"></script>
-<script src="assets/storage.js?v=20260810d"></script>
-<script src="assets/app.js?v=20260810d"></script>
+<script src="assets/normalize.js?v=20260810f"></script>
+<script src="assets/lineParser.js?v=20260810f"></script>
+<script src="assets/dingxinParser.js?v=20260810f"></script>
+<script src="assets/customerParser.js?v=20260810f"></script>
+<script src="assets/quoteParser.js?v=20260810f"></script>
+<script src="assets/stockMasterParser.js?v=20260810f"></script>
+<script src="assets/priceTable.js?v=20260810f"></script>
+<script src="assets/matcher.js?v=20260810f"></script>
+<script src="assets/refStorage.js?v=20260810f"></script>
+<script src="assets/storage.js?v=20260810f"></script>
+<script src="assets/app.js?v=20260810f"></script>

@@ -1,9 +1,12 @@
 // 共用的文字正規化工具：店名 / 品名 用來做別名對照比對
 
 const Normalize = (() => {
+  // 分店常用「永1/永一」「板2/板二」這種阿拉伯數字/中文數字混用，統一轉中文數字再比對
+  const STORE_NUM_MAP = { '1': '一', '2': '二', '3': '三', '4': '四', '5': '五' };
   function normStore(s) {
     if (!s) return '';
     return s
+      .replace(/[1-5]/g, (d) => STORE_NUM_MAP[d])
       .replace(/\s+/g, '')
       .replace(/[-－—_]/g, '')
       .replace(/店$/g, '')

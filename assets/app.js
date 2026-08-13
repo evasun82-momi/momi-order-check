@@ -6,6 +6,7 @@
     priceTable: null,
     customerMaster: [],
     quoteMaster: new Map(),
+    stockMaster: new Map(),
     lineResolved: [],
     pendingStores: new Map(),
     pendingItems: new Map(),
@@ -97,6 +98,18 @@
     refreshPromoSelectors();
   });
 
+  $('fileStockMaster').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const buf = await readArrayBuffer(file);
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    state.stockMaster = StockMasterParser.parse(wb);
+    RefStorage.saveStockMaster(state.stockMaster, file.name);
+    $('statusStockMaster').textContent = `已讀取 ${state.stockMaster.size} 個品項（已記住，下次自動帶入）`;
+    $('btnClearStockMaster').style.display = '';
+    refreshPromoSelectors();
+  });
+
   $('btnClearPrice').addEventListener('click', () => {
     RefStorage.clear('price');
     state.priceTable = null;
@@ -116,6 +129,13 @@
     state.quoteMaster = new Map();
     $('statusQuote').textContent = '';
     $('btnClearQuote').style.display = 'none';
+    refreshPromoSelectors();
+  });
+  $('btnClearStockMaster').addEventListener('click', () => {
+    RefStorage.clear('stockMaster');
+    state.stockMaster = new Map();
+    $('statusStockMaster').textContent = '';
+    $('btnClearStockMaster').style.display = 'none';
     refreshPromoSelectors();
   });
 
@@ -138,6 +158,12 @@
       $('statusQuote').textContent = RefStorage.formatMeta(q.meta);
       $('btnClearQuote').style.display = '';
     }
+    const sm = RefStorage.loadStockMaster();
+    if (sm) {
+      state.stockMaster = sm.stockMaster;
+      $('statusStockMaster').textContent = RefStorage.formatMeta(sm.meta);
+      $('btnClearStockMaster').style.display = '';
+    }
     refreshPromoSelectors();
   }
 
@@ -148,9 +174,12 @@
     return [...s].filter(Boolean);
   }
 
-  // 品名優先用報價單（momi報價單）的名稱，查不到才退回查核表的品名
+  // 品名優先用商品主檔（多倉庫存表，品項最完整最準確），
+  // 其次報價單（momi報價單），查不到才退回查核表的品名
   function productDisplayName(itemCode) {
     if (!itemCode) return '';
+    const sm = state.stockMaster.get(itemCode);
+    if (sm && sm.name) return sm.name;
     const q = state.quoteMaster.get(itemCode);
     if (q && q.name) return q.name;
     if (state.priceTable && state.priceTable.productMaster.has(itemCode)) {
@@ -163,6 +192,9 @@
     const m = new Map(state.priceTable ? state.priceTable.productMaster : []);
     for (const [code, info] of state.quoteMaster) {
       if (!m.has(code)) m.set(code, info.name);
+    }
+    for (const [code, info] of state.stockMaster) {
+      m.set(code, info.name); // 商品主檔品名最準確，覆蓋前面的
     }
     return m;
   }
@@ -195,7 +227,7 @@
 
     const dateFrom = $('dateFrom').value || null;
     const dateTo = $('dateTo').value || null;
-    state.orderCompare = Matcher.compareOrders(resolved, state.dingxinRows, dateFrom, dateTo);
+    state.orderCompare = Matcher.compareOrders(resolved, state.dingxinRows, dateFrom, dateTo, state.config.stockouts);
     state.priceCompare = computePriceCompare(dateFrom, dateTo);
 
     $('statusRun').textContent = '比對完成';
@@ -370,14 +402,13 @@
       '<th>品名</th><th class="col-a">LINE數量</th><th class="col-b">鼎新數量</th><th>差異</th>' +
       '</tr></thead><tbody>';
     for (const r of rows) {
-      const mismatch = r.diff !== 0;
-      const lineCell = mismatch ? 'cell-diff' : '';
-      const dxCell = mismatch ? 'cell-diff' : '';
+      const mismatch = r.diff !== 0 && !r.stockout;
+      const cell = mismatch ? 'cell-diff' : (r.stockout ? 'cell-stockout' : '');
       html += `<tr>
         <td>${escapeHtml(productDisplayName(r.itemCode))}</td>
-        <td class="col-a ${lineCell}">${escapeHtml(r.lineQty)}</td>
-        <td class="col-b ${dxCell}">${escapeHtml(r.dxQty)}</td>
-        <td class="${mismatch ? 'cell-diff' : ''}">${escapeHtml(r.diff)}</td>
+        <td class="col-a ${cell}">${escapeHtml(r.lineQty)}</td>
+        <td class="col-b ${cell}">${escapeHtml(r.dxQty)}</td>
+        <td class="${cell}">${r.stockout ? '<span class="badge badge-warn">缺貨</span>' : escapeHtml(r.diff)}</td>
       </tr>`;
     }
     html += '</tbody></table>';
@@ -465,6 +496,14 @@
     itemSel.innerHTML = [...allProductMaster().entries()].sort((a, b) => a[0].localeCompare(b[0]))
       .map(([code, name]) => `<option value="${escapeAttr(code)}">${escapeHtml(code)} - ${escapeHtml(name)}</option>`).join('');
     renderPromoTable();
+
+    const stockItemSel = $('stockItem');
+    stockItemSel.innerHTML = [...allProductMaster().entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([code, name]) => `<option value="${escapeAttr(code)}">${escapeHtml(code)} - ${escapeHtml(name)}</option>`).join('');
+    const stockStoreSel = $('stockStore');
+    stockStoreSel.innerHTML = '<option value="">全部店家</option>' +
+      allStoreCandidates().sort().map((c) => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+    renderStockTable();
   }
   $('promoScope').addEventListener('change', () => {
     $('promoItem').style.display = $('promoScope').value === 'item' ? '' : 'none';
@@ -507,6 +546,42 @@
       state.config.promotions = state.config.promotions.filter((p) => p.id !== b.dataset.id);
       Storage.save(state.config);
       renderPromoTable();
+    }));
+  }
+
+  // ---------- 缺貨品項設定 ----------
+  $('btnAddStock').addEventListener('click', () => {
+    if (!$('stockItem').options.length) { alert('請先上傳商品主檔、報價單或客戶價格查核表'); return; }
+    const stockout = {
+      id: `s${Date.now()}`,
+      itemCode: $('stockItem').value,
+      store: $('stockStore').value || null,
+      startDate: $('stockStart').value || null,
+      endDate: $('stockEnd').value || null,
+      note: $('stockNote').value.trim()
+    };
+    if (!stockout.itemCode) { alert('請選擇品項'); return; }
+    state.config.stockouts.push(stockout);
+    Storage.save(state.config);
+    $('stockNote').value = '';
+    renderStockTable();
+  });
+  function renderStockTable() {
+    const el = $('stockTable');
+    if (!state.config.stockouts.length) { el.innerHTML = '<div class="empty-state">尚未設定缺貨品項</div>'; return; }
+    el.innerHTML = tableHtml(
+      ['品項', '店家', '開始', '結束', '備註', ''],
+      state.config.stockouts.map((s) => [
+        productDisplayName(s.itemCode) || s.itemCode,
+        s.store || '全部店家',
+        s.startDate || '不限', s.endDate || '尚未恢復', s.note || '',
+        `<button class="danger remove-stock" data-id="${s.id}">刪除</button>`
+      ])
+    );
+    el.querySelectorAll('.remove-stock').forEach((b) => b.addEventListener('click', () => {
+      state.config.stockouts = state.config.stockouts.filter((s) => s.id !== b.dataset.id);
+      Storage.save(state.config);
+      renderStockTable();
     }));
   }
 

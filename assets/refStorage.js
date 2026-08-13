@@ -5,7 +5,8 @@ const RefStorage = (() => {
   const KEYS = {
     price: 'momi_ref_price_v1',
     customer: 'momi_ref_customer_v1',
-    quote: 'momi_ref_quote_v1'
+    quote: 'momi_ref_quote_v1',
+    stockMaster: 'momi_ref_stockmaster_v1'
   };
 
   function mapToArr(m) { return [...m.entries()]; }
@@ -66,6 +67,19 @@ const RefStorage = (() => {
     return { meta: { fileName: p.fileName, uploadedAt: p.uploadedAt }, quoteMaster: arrToMap(p.data) };
   }
 
+  function saveStockMaster(stockMaster, fileName) {
+    localStorage.setItem(KEYS.stockMaster, JSON.stringify({
+      fileName, uploadedAt: new Date().toISOString(), data: mapToArr(stockMaster)
+    }));
+  }
+
+  function loadStockMaster() {
+    const raw = localStorage.getItem(KEYS.stockMaster);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    return { meta: { fileName: p.fileName, uploadedAt: p.uploadedAt }, stockMaster: arrToMap(p.data) };
+  }
+
   function clear(kind) {
     if (KEYS[kind]) localStorage.removeItem(KEYS[kind]);
   }
@@ -77,5 +91,5 @@ const RefStorage = (() => {
     return `上次上傳：${meta.fileName}（${ds}）`;
   }
 
-  return { savePrice, loadPrice, saveCustomer, loadCustomer, saveQuote, loadQuote, clear, formatMeta };
+  return { savePrice, loadPrice, saveCustomer, loadCustomer, saveQuote, loadQuote, saveStockMaster, loadStockMaster, clear, formatMeta };
 })();

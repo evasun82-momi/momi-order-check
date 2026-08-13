@@ -73,6 +73,10 @@ const LineParser = (() => {
     }
     // 去掉「急）」「退單）」「追加）」這種只有右括號的口語標記（名單清除後才會浮現到開頭/字詞間）
     s = s.replace(/(^|\s)[^\s（）、,，]{1,6}[）)](\s|$)/g, ' ');
+    // 帳期/出貨備註（如「下月帳」「7月帳」「親送」「業務自送」）不是店名的一部分，
+    // 但要留下來當備註，不能直接丟掉
+    const noteTokens = [];
+    s = s.replace(/(下月帳|[0-9]{1,2}月帳|親送自取|業務自送|已取|跨月出)/g, (m) => { noteTokens.push(m); return ' '; });
     // 清掉常見連接符號/贅字
     s = s.replace(/[｜|・.,，、\-]+/g, ' ');
     s = normSpace(s);
@@ -115,6 +119,7 @@ const LineParser = (() => {
       }
     }
     main = normSpace(main);
+    orderRefs.push(...noteTokens);
     if (!main) return { storeName: null, orderRefs, skip: true };
     return { storeName: main, orderRefs, skip: false };
   }

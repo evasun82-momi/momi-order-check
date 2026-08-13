@@ -76,7 +76,18 @@ const Matcher = (() => {
     return score;
   }
 
-  function buildDiffRows(lineMap, dxMap) {
+  // 缺貨設定：LINE有訂、鼎新沒登打，但品項剛好在缺貨區間內，不算真的差異
+  function isStockedOut(stockouts, itemCode, customer, dateStr) {
+    return (stockouts || []).some((s) => {
+      if (s.itemCode !== itemCode) return false;
+      if (s.store && s.store !== customer) return false;
+      if (s.startDate && dateStr < s.startDate) return false;
+      if (s.endDate && dateStr > s.endDate) return false;
+      return true;
+    });
+  }
+
+  function buildDiffRows(lineMap, dxMap, stockouts, customer, dateStr) {
     const itemCodes = new Set([...lineMap.keys(), ...dxMap.keys()]);
     const rows = [];
     let hasDiff = false;
@@ -84,15 +95,16 @@ const Matcher = (() => {
       const lineQty = lineMap.get(code) || 0;
       const dxQty = dxMap.get(code) || 0;
       const diff = dxQty - lineQty;
-      if (diff !== 0) hasDiff = true;
-      rows.push({ itemCode: code, lineQty, dxQty, diff });
+      const stockout = diff < 0 && isStockedOut(stockouts, code, customer, dateStr);
+      if (diff !== 0 && !stockout) hasDiff = true;
+      rows.push({ itemCode: code, lineQty, dxQty, diff, stockout });
     }
     return { rows: rows.sort((a, b) => a.itemCode.localeCompare(b.itemCode)), hasDiff };
   }
 
   // 「一則LINE對話 = 一張鼎新單」：同店同天可能有多則對話、多張單，
   // 用品項重疊分數做貪婪配對，而不是把整天全部加總在一起比對
-  function compareOrders(lineResolved, dingxinRows, dateFrom, dateTo) {
+  function compareOrders(lineResolved, dingxinRows, dateFrom, dateTo, stockouts) {
     const inRange = (d) => (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo);
 
     const dxOrders = new Map(); // customer|date|orderNo -> {customer,date,orderNo,items:Map}
@@ -144,7 +156,7 @@ const Matcher = (() => {
       for (const p of pairs) {
         if (usedLine.has(p.i) || usedDx.has(p.j)) continue;
         usedLine.add(p.i); usedDx.add(p.j);
-        const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items);
+        const diff = buildDiffRows(lineList[p.i].itemMap, dxList[p.j].items, stockouts, customer, date);
         results.push({
           customer, date, lineTime: lineList[p.i].block.time, lineDate: lineList[p.i].block.date, lineHeader: lineList[p.i].block.rawHeader,
           lineRawItems: lineList[p.i].block.items.map((it) => it.raw), lineNotes: lineList[p.i].block.notes,
@@ -153,7 +165,7 @@ const Matcher = (() => {
       }
       for (let i = 0; i < lineList.length; i++) {
         if (usedLine.has(i)) continue;
-        const diff = buildDiffRows(lineList[i].itemMap, new Map());
+        const diff = buildDiffRows(lineList[i].itemMap, new Map(), stockouts, customer, date);
         results.push({
           customer, date, lineTime: lineList[i].block.time, lineDate: lineList[i].block.date, lineHeader: lineList[i].block.rawHeader,
           lineRawItems: lineList[i].block.items.map((it) => it.raw), lineNotes: lineList[i].block.notes,
