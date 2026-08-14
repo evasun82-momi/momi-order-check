@@ -386,11 +386,13 @@
       html += `<div class="order-block"><div class="block-header"><strong>${escapeHtml(g.customer)} - ${g.date}</strong>${badge}</div>`;
       if (meta) html += `<div class="section-note" style="margin-top:-6px">${escapeHtml(meta)}</div>`;
 
-      if (g.lineHeader || (g.lineRawItems && g.lineRawItems.length)) {
+      if (g.lineHeader || (g.lineRawLines && g.lineRawLines.length)) {
         const bubbleLines = [];
         if (g.lineHeader) bubbleLines.push(escapeHtml(g.lineHeader));
-        for (const raw of g.lineRawItems || []) bubbleLines.push(escapeHtml(raw));
-        for (const note of g.lineNotes || []) bubbleLines.push(escapeHtml(note));
+        // 按原始訊息裡的行順序顯示，不要把品項行跟備註行拆開重新分組，
+        // 不然「請補出 二割x3 / 回收 一割x3」這種一行指示對應一個品項的語意會被打亂
+        const raws = (g.lineRawLines && g.lineRawLines.length) ? g.lineRawLines : [...(g.lineRawItems || []), ...(g.lineNotes || [])];
+        for (const raw of raws) bubbleLines.push(escapeHtml(raw));
         html += `<div class="line-bubble">${bubbleLines.join('<br>')}</div>`;
       }
 
@@ -399,12 +401,22 @@
     el.innerHTML = html;
   }
 
-  // 左右對照表：品名用鼎新中文名，不同的一格用顏色標出來（而不是只標整列）
+  function priceStatusBadge(status) {
+    if (status === 'ok') return '<span class="badge badge-ok">正常</span>';
+    if (status === 'diff') return '<span class="badge badge-diff">異常</span>';
+    if (status === 'gift') return '<span class="badge badge-warn">贈品/特殊</span>';
+    if (status === 'selfuse') return '<span class="badge badge-warn">活體/自用</span>';
+    return '<span class="badge badge-muted">查無資料</span>';
+  }
+
+  // 左右對照表：品名用鼎新中文名，不同的一格用顏色標出來（而不是只標整列）。
+  // 鼎新那一行如果同品號分好幾行登打（例如一行正常價、一行贈品0元），完全照鼎新單拆成好幾列顯示，
+  // 不要自己加總合併成一列——這樣才能直接對照原始銷貨單肉眼核對。
   function compareTableHtml(rows) {
     const hasPrice = rows.some((r) => r.priceStatus !== undefined);
     let html = '<table class="compare-table"><thead><tr>' +
       '<th class="col-a">LINE寫的品名</th><th class="col-b">鼎新品名</th><th class="col-a">LINE數量</th><th class="col-b">鼎新數量</th><th>數量差異</th>' +
-      (hasPrice ? '<th class="col-a">登打單價</th><th class="col-b">正確價格</th><th>價格狀態</th><th>LINE備註</th>' : '') +
+      (hasPrice ? '<th class="col-a">登打單價</th><th class="col-b">正確價格</th><th>價格狀態</th><th class="col-a">LINE備註</th>' : '') +
       '</tr></thead><tbody>';
     for (const r of rows) {
       const netDiff = r.diff - (r.selfUseAbsorbed || 0);
@@ -413,31 +425,39 @@
       let diffCell = escapeHtml(r.diff);
       if (r.stockout) diffCell = '<span class="badge badge-warn">缺貨</span>';
       else if (r.selfUseAbsorbed) diffCell = `<span class="badge badge-warn">活體/自用 +${r.selfUseAbsorbed}</span>` + (netDiff !== 0 ? ` ${escapeHtml(netDiff)}` : '');
-      html += `<tr>
-        <td class="col-a">${escapeHtml(r.lineName || '-')}</td>
-        <td class="col-b">${escapeHtml(productDisplayName(r.itemCode))}</td>
-        <td class="col-a ${cell}">${escapeHtml(r.lineQty)}</td>
-        <td class="col-b ${cell}">${escapeHtml(r.dxQty)}</td>
-        <td class="${cell}">${diffCell}</td>`;
-      if (hasPrice) {
-        const priceMismatch = r.priceStatus === 'diff';
-        const priceCell = priceMismatch ? 'cell-diff' : ((r.priceStatus === 'gift') ? 'cell-stockout' : '');
-        let statusBadge = '<span class="badge badge-muted">查無資料</span>';
-        if (r.priceStatus === 'ok') statusBadge = '<span class="badge badge-ok">正常</span>';
-        else if (r.priceStatus === 'diff') statusBadge = '<span class="badge badge-diff">異常</span>';
-        else if (r.priceStatus === 'gift') statusBadge = '<span class="badge badge-warn">贈品/特殊</span>';
-        // 每個品項可能分好幾行登打不同單價（例如一行正常價、一行贈品0元），逐行顯示，不合併算平均
-        const enteredCell = (r.priceLines || []).map((l) => {
-          const tag = l.status === 'diff' ? '(異常)' : (l.status === 'gift' ? '(贈品)' : (l.status === 'selfuse' ? '(活體/自用)' : ''));
-          return `${l.unitPrice}×${l.qty}${tag}`;
-        }).join('、') || '-';
-        html += `
-        <td class="col-a ${priceCell}">${enteredCell}</td>
-        <td class="col-b ${priceCell}">${r.correctPrice != null ? escapeHtml(r.correctPrice) : '-'}</td>
-        <td>${statusBadge}</td>
-        <td class="suggestion">${escapeHtml(r.lineNote || '')}</td>`;
-      }
-      html += '</tr>';
+
+      // 鼎新這個品號在單上有幾行，這裡就顯示幾列；完全沒有鼎新明細（純LINE有寫、鼎新沒key）時只顯示一列
+      const dxLines = (hasPrice && r.priceLines && r.priceLines.length) ? r.priceLines : (r.dxQty ? [{ qty: r.dxQty, unitPrice: null, status: undefined }] : [null]);
+      const rowspan = dxLines.length;
+
+      dxLines.forEach((l, i) => {
+        html += '<tr>';
+        if (i === 0) {
+          html += `
+          <td class="col-a" rowspan="${rowspan}">${escapeHtml(r.lineName || '-')}</td>`;
+        }
+        html += `<td class="col-b">${escapeHtml(productDisplayName(r.itemCode))}</td>`;
+        if (i === 0) {
+          html += `<td class="col-a ${cell}" rowspan="${rowspan}">${escapeHtml(r.lineQty)}</td>`;
+        }
+        html += `<td class="col-b ${cell}">${l ? escapeHtml(l.qty) : '-'}</td>`;
+        if (i === 0) {
+          html += `<td class="${cell}" rowspan="${rowspan}">${diffCell}</td>`;
+        }
+        if (hasPrice) {
+          const priceCell = l && l.status === 'diff' ? 'cell-diff' : (l && (l.status === 'gift' || l.status === 'selfuse') ? 'cell-stockout' : '');
+          html += `
+          <td class="col-a ${priceCell}">${l && l.unitPrice != null ? escapeHtml(l.unitPrice) : '-'}</td>`;
+          if (i === 0) {
+            html += `<td class="col-b" rowspan="${rowspan}">${r.correctPrice != null ? escapeHtml(r.correctPrice) : '-'}</td>`;
+          }
+          html += `<td class="${priceCell}">${priceStatusBadge(l ? l.status : undefined)}</td>`;
+          if (i === 0) {
+            html += `<td class="col-a suggestion" rowspan="${rowspan}">${escapeHtml(r.lineNote || '')}</td>`;
+          }
+        }
+        html += '</tr>';
+      });
     }
     html += '</tbody></table>';
     return html;

@@ -114,7 +114,10 @@ const Matcher = (() => {
   }
 
   function buildDiffRows(lineMap, dxMap, stockouts, customer, dateStr, priceCtx, selfUseItems) {
-    const itemCodes = new Set([...lineMap.keys(), ...dxMap.keys()]);
+    // 品項順序完全照鼎新明細表的原始行順序（Map的insertion order跟excel列順序一致），
+    // 不要照品號字母排序，比對時才能直接對照原始銷貨單肉眼核對。只有LINE有寫、鼎新完全沒登打
+    // 的品項，因為在鼎新單上沒有對應位置，才排在最後面。
+    const itemCodes = [...dxMap.keys(), ...[...lineMap.keys()].filter((c) => !dxMap.has(c))];
     const rows = [];
     for (const code of itemCodes) {
       const lineEntry = lineMap.get(code);
@@ -127,7 +130,6 @@ const Matcher = (() => {
       const lineName = lineEntry && lineEntry.lineNames.length ? lineEntry.lineNames.join('、') : '';
       rows.push({ itemCode: code, lineQty, dxQty, diff, stockout, lineNote, lineName, dxEntry });
     }
-    rows.sort((a, b) => a.itemCode.localeCompare(b.itemCode));
 
     // 自用/活體品項（如「自用木屑」）鼎新登打時會直接併進「同類」品項的數量裡、標0元贈品，
     // 不會有自己的品號。用「同一則對話裡未對照到的自用/活體品項」當額度，
@@ -153,10 +155,11 @@ const Matcher = (() => {
       const netDiff = row.diff - (row.selfUseAbsorbed || 0);
       if (netDiff !== 0 && !row.stockout) hasDiff = true;
 
-      if (priceCtx && dxEntry) {
+      if (dxEntry) {
         // 鼎新同一品項常常分成好幾行登打（例如一行正常價、一行贈品0元），
-        // 不能把它們混在一起算平均單價，要逐行各自跟正確價格比對
-        const cp = priceCtx.priceTable
+        // 不能把它們混在一起算平均單價，要逐行各自跟正確價格比對；
+        // 就算沒有價格資料（還沒上傳查核表），也要保留逐行的數量/單價明細給畫面照鼎新單顯示
+        const cp = priceCtx && priceCtx.priceTable
           ? priceCtx_correctPrice(priceCtx, customer, row.itemCode, dateStr)
           : { price: null, source: null, promo: null };
         const isGiftNote = GIFT_NOTE_RE.test(row.lineNote);
@@ -257,6 +260,7 @@ const Matcher = (() => {
         results.push({
           customer, date, lineTime: lineList[p.i].block.time, lineDate: lineList[p.i].block.date, lineHeader: lineList[p.i].block.rawHeader,
           lineRawItems: lineList[p.i].block.items.map((it) => it.raw), lineNotes: lineList[p.i].block.notes,
+          lineRawLines: lineList[p.i].block.rawLines,
           orderNo: dxList[p.j].orderNo, matched: true, ...diff
         });
       }
@@ -266,6 +270,7 @@ const Matcher = (() => {
         results.push({
           customer, date, lineTime: lineList[i].block.time, lineDate: lineList[i].block.date, lineHeader: lineList[i].block.rawHeader,
           lineRawItems: lineList[i].block.items.map((it) => it.raw), lineNotes: lineList[i].block.notes,
+          lineRawLines: lineList[i].block.rawLines,
           orderNo: null, matched: false, unmatchedSide: 'line', ...diff, hasDiff: true
         });
       }
