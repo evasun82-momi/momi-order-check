@@ -16,6 +16,25 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // 存設定：本機一定存一份（離線也能用），Firebase有設定好的話同時推上雲端讓其他裝置同步到
+  function saveConfig() {
+    Storage.save(state.config);
+    CloudSync.push(state.config);
+  }
+  function mergeCloudConfig(remote) {
+    return {
+      ...structuredClone(Storage.DEFAULT_CONFIG),
+      ...remote,
+      storeAliases: { ...Storage.DEFAULT_CONFIG.storeAliases, ...(remote.storeAliases || {}) },
+      itemAliases: { ...Storage.DEFAULT_CONFIG.itemAliases, ...(remote.itemAliases || {}) }
+    };
+  }
+  function refreshConfigDependentUI() {
+    renderExcludeList();
+    renderAliasTables();
+    refreshPromoSelectors();
+  }
+
   // ---------- tabs ----------
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -276,7 +295,7 @@
         const val = rowEl.querySelector('.pending-store-select').value;
         if (!val) return;
         state.config.storeAliases[key] = val;
-        Storage.save(state.config);
+        saveConfig();
         runCompare();
       });
     });
@@ -306,7 +325,7 @@
         const val = rowEl.querySelector('.pending-item-select').value;
         if (!val) return;
         state.config.itemAliases[key] = val;
-        Storage.save(state.config);
+        saveConfig();
         runCompare();
       });
     });
@@ -321,7 +340,7 @@
     ) : '<div class="empty-state">尚未建立</div>';
     storeEl.querySelectorAll('.remove-store-alias').forEach((b) => b.addEventListener('click', () => {
       delete state.config.storeAliases[b.dataset.key];
-      Storage.save(state.config);
+      saveConfig();
       renderAliasTables();
     }));
 
@@ -333,7 +352,7 @@
     ) : '<div class="empty-state">尚未建立</div>';
     itemEl.querySelectorAll('.remove-item-alias').forEach((b) => b.addEventListener('click', () => {
       delete state.config.itemAliases[b.dataset.key];
-      Storage.save(state.config);
+      saveConfig();
       renderAliasTables();
     }));
   }
@@ -523,7 +542,7 @@
     ).join('');
     el.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
       state.config.excludedNames = state.config.excludedNames.filter((n) => n !== b.dataset.name);
-      Storage.save(state.config);
+      saveConfig();
       renderExcludeList();
     }));
   }
@@ -531,7 +550,7 @@
     const val = $('newExcludeName').value.trim();
     if (!val || state.config.excludedNames.includes(val)) return;
     state.config.excludedNames.push(val);
-    Storage.save(state.config);
+    saveConfig();
     $('newExcludeName').value = '';
     renderExcludeList();
   });
@@ -572,7 +591,7 @@
     };
     if (!promo.store || isNaN(promo.value)) { alert('請選擇店家並輸入數值'); return; }
     state.config.promotions.push(promo);
-    Storage.save(state.config);
+    saveConfig();
     $('promoValue').value = '';
     $('promoNote').value = '';
     renderPromoTable();
@@ -592,7 +611,7 @@
     );
     el.querySelectorAll('.remove-promo').forEach((b) => b.addEventListener('click', () => {
       state.config.promotions = state.config.promotions.filter((p) => p.id !== b.dataset.id);
-      Storage.save(state.config);
+      saveConfig();
       renderPromoTable();
     }));
   }
@@ -610,7 +629,7 @@
     };
     if (!stockout.itemCode) { alert('請選擇品項'); return; }
     state.config.stockouts.push(stockout);
-    Storage.save(state.config);
+    saveConfig();
     $('stockNote').value = '';
     renderStockTable();
   });
@@ -628,7 +647,7 @@
     );
     el.querySelectorAll('.remove-stock').forEach((b) => b.addEventListener('click', () => {
       state.config.stockouts = state.config.stockouts.filter((s) => s.id !== b.dataset.id);
-      Storage.save(state.config);
+      saveConfig();
       renderStockTable();
     }));
   }
@@ -640,7 +659,7 @@
     if (!file) return;
     try {
       state.config = await Storage.importJSON(file);
-      Storage.save(state.config);
+      saveConfig();
       renderExcludeList();
       renderAliasTables();
       refreshPromoSelectors();
@@ -669,4 +688,14 @@
   renderExcludeList();
   renderAliasTables();
   loadPersistedReferences();
+
+  // 雲端設定同步：Firebase設定好才會啟用；沒設定的話完全不影響，維持原本純本機儲存的行為。
+  // onChange第一次觸發時本來就會拿到雲端目前的值，等同開頁時的初始讀取，不用另外呼叫一次pull()
+  if (CloudSync.init()) {
+    CloudSync.onChange((remote) => {
+      state.config = mergeCloudConfig(remote);
+      Storage.save(state.config);
+      refreshConfigDependentUI();
+    });
+  }
 })();
